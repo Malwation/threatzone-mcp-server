@@ -42,7 +42,9 @@ export function registerVncTools(server: McpServer): void {
 			ws_cookie: z
 				.string()
 				.optional()
-				.describe('Cookie header value for authenticated websockify connections (paired with ws_url)'),
+				.describe(
+					'Cookie header value for authenticated websockify connections (paired with ws_url)',
+				),
 			session_id: z.string().optional().describe('Custom session identifier'),
 		},
 		async (args) => {
