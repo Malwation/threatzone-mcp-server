@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto';
+import type { RemoteSession } from '../../shared/remote-session.js';
 import { SessionNotFoundError } from '../errors.js';
 import type { SessionInfo, VncSessionConfig } from './protocol-types.js';
 import { VncClient } from './vnc-client.js';
 
 export class SessionManager {
-	private sessions = new Map<string, VncClient>();
+	private sessions = new Map<string, RemoteSession>();
 	private defaultSessionId: string | null = null;
 
-	async connect(
+	/** Construct + connect a VncClient and register it. */
+	async connectVnc(
 		config: Omit<VncSessionConfig, 'sessionId'> & { sessionId?: string },
 	): Promise<VncClient> {
 		const sessionId = config.sessionId ?? randomUUID();
@@ -19,9 +21,18 @@ export class SessionManager {
 		});
 
 		await client.connect();
-		this.sessions.set(sessionId, client);
-		this.defaultSessionId = sessionId;
+		this.register(client);
 		return client;
+	}
+
+	/**
+	 * Register an already-connected session. Used by the connect tool's RTC
+	 * branch (RtcClient is constructed there because it needs transport-specific
+	 * config like signalingUrl that doesn't fit the VncSessionConfig shape).
+	 */
+	register(client: RemoteSession): void {
+		this.sessions.set(client.config.sessionId, client);
+		this.defaultSessionId = client.config.sessionId;
 	}
 
 	disconnect(sessionId?: string): void {
@@ -41,7 +52,7 @@ export class SessionManager {
 		}
 	}
 
-	getSession(sessionId?: string): VncClient {
+	getSession(sessionId?: string): RemoteSession {
 		const id = sessionId ?? this.defaultSessionId;
 		if (!id) throw new SessionNotFoundError();
 

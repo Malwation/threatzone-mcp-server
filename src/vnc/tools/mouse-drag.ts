@@ -2,6 +2,13 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { BUTTON_MASK } from '../protocol/protocol-types.js';
 import type { SessionManager } from '../protocol/session-manager.js';
 
+/**
+ * Settle pause after the press (before the first move) and after the last
+ * move (before the release). Same rationale as TAP_HOLD_MS in mouse-click.ts:
+ * Android needs the touch to look like a real, non-instant gesture.
+ */
+const DRAG_SETTLE_MS = 40;
+
 interface Point {
 	x: number;
 	y: number;
@@ -91,6 +98,7 @@ export async function handleMouseDrag(
 
 	// Press button
 	client.sendPointer(start.x, start.y, mask);
+	await sleep(DRAG_SETTLE_MS);
 
 	// Interpolate along path
 	for (let i = 1; i <= steps; i++) {
@@ -101,6 +109,7 @@ export async function handleMouseDrag(
 	}
 
 	// Release button
+	await sleep(DRAG_SETTLE_MS);
 	client.sendPointer(end.x, end.y, 0);
 
 	const pathType =

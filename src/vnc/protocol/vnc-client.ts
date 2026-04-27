@@ -1,3 +1,5 @@
+import { UnsupportedOnTransportError } from '../../rtc/errors.js';
+import type { DeviceButton, RemoteSession, RemoteTransport } from '../../shared/remote-session.js';
 import { ConnectionError, TimeoutError } from '../errors.js';
 import { Framebuffer } from './framebuffer.js';
 import type {
@@ -33,13 +35,14 @@ interface ConnectedState {
 	screenSize: ScreenSize;
 }
 
-export class VncClient {
+export class VncClient implements RemoteSession {
 	private client: RfbBackend | null = null;
 	private framebuffer: Framebuffer | null = null;
 	private connectTimeout: number;
 	private screenshotTimeout: number;
 	private lastClipboardText: string | null = null;
 
+	readonly transport: RemoteTransport = 'vnc';
 	state: VncSessionState = 'disconnected';
 	screenSize: ScreenSize | null = null;
 	readonly config: VncSessionConfig;
@@ -307,6 +310,10 @@ export class VncClient {
 	sendPointer(x: number, y: number, buttonMask: number): void {
 		const { client } = this.ensureConnected();
 		client.pointerEvent(x, y, buttonMask);
+	}
+
+	sendDeviceButton(_button: DeviceButton): void {
+		throw new UnsupportedOnTransportError('vnc', 'device_button');
 	}
 
 	requestFramebufferUpdate(incremental: boolean): void {

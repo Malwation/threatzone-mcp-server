@@ -14,14 +14,17 @@
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.12.1",
-		"ioredis": "^5.6.1",
+		"dotenv": "^16.4.5",
+		"express": "^4.21.2",
 		"rfb2": "^0.2.2",
 		"sharp": "^0.33.5",
+		"werift": "^0.22.9",
 		"ws": "^8.20.0",
 		"zod": "^3.25.3"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.9",
+		"@types/express": "^4.17.21",
 		"@types/node": "^22.15.3",
 		"@types/ws": "^8.18.1",
 		"typescript": "5.8.3"
