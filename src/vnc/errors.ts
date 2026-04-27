@@ -48,6 +48,16 @@ export class TokenResolutionError extends VncError {
 	}
 }
 
+export class UnsupportedTransportError extends VncError {
+	constructor(transport: string) {
+		super(
+			`Transport '${transport}' is not supported by this MCP server (yet)`,
+			'UNSUPPORTED_TRANSPORT',
+		);
+		this.name = 'UnsupportedTransportError';
+	}
+}
+
 export function errorResult(err: unknown): CallToolResult {
 	const message = err instanceof Error ? err.message : String(err);
 	return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };

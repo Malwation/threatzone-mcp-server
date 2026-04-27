@@ -6,6 +6,7 @@ import { TokenResolver } from './redis/token-resolver.js';
 import { handleClipboardRead } from './tools/clipboard-read.js';
 import { handleClipboardWrite } from './tools/clipboard-write.js';
 import { handleConnect } from './tools/connect.js';
+import { handleDeviceButton } from './tools/device-button.js';
 import { handleDisconnect } from './tools/disconnect.js';
 import { handleFileDownload } from './tools/file-download.js';
 import { handleFileUpload } from './tools/file-upload.js';
@@ -26,14 +27,20 @@ export function registerVncTools(server: McpServer): void {
 	// --- connect ---
 	server.tool(
 		'connect',
-		'Connect to a VNC server by token (Redis) or direct host:port',
+		'Connect to a VNC server by URL (recommended), token, ws_url, or direct host:port',
 		{
+			url: z
+				.string()
+				.optional()
+				.describe(
+					'Full novnc URL with embedded token, e.g. https://host:9191/?token=UUID. Probes /api/token-info first; routes vnc tokens through websockify and rejects webrtc tokens with UNSUPPORTED_TRANSPORT.',
+				),
 			token: z
 				.string()
 				.optional()
 				.describe('VNC session token (resolved via Redis key vnc-<token>)'),
 			host: z.string().optional().describe('VNC server hostname or IP'),
-			port: z.number().optional().describe('VNC server port (default: 5901)'),
+			port: z.coerce.number().optional().describe('VNC server port (default: 5901)'),
 			username: z
 				.string()
 				.optional()
@@ -94,10 +101,10 @@ export function registerVncTools(server: McpServer): void {
 				.describe('JPEG quality 1-100 (ignored for PNG)'),
 			region: z
 				.object({
-					x: z.number(),
-					y: z.number(),
-					width: z.number(),
-					height: z.number(),
+					x: z.coerce.number(),
+					y: z.coerce.number(),
+					width: z.coerce.number(),
+					height: z.coerce.number(),
 				})
 				.optional()
 				.describe('Capture a specific region (full screen if omitted)'),
@@ -139,7 +146,10 @@ export function registerVncTools(server: McpServer): void {
 		'Type a string of text character by character',
 		{
 			text: z.string().describe('Text to type'),
-			delay_ms: z.number().optional().describe('Delay between keystrokes in ms (default: 12)'),
+			delay_ms: z.coerce
+				.number()
+				.optional()
+				.describe('Delay between keystrokes in ms (default: 12)'),
 			session_id: z.string().optional().describe('Session ID'),
 		},
 		async (args) => {
@@ -156,8 +166,8 @@ export function registerVncTools(server: McpServer): void {
 		'mouse_click',
 		'Click the mouse at a specific position',
 		{
-			x: z.number().describe('X coordinate'),
-			y: z.number().describe('Y coordinate'),
+			x: z.coerce.number().describe('X coordinate'),
+			y: z.coerce.number().describe('Y coordinate'),
 			button: z
 				.enum(['left', 'middle', 'right'])
 				.optional()
@@ -179,8 +189,8 @@ export function registerVncTools(server: McpServer): void {
 		'mouse_move',
 		'Move the mouse cursor to a specific position',
 		{
-			x: z.number().describe('X coordinate'),
-			y: z.number().describe('Y coordinate'),
+			x: z.coerce.number().describe('X coordinate'),
+			y: z.coerce.number().describe('Y coordinate'),
 			session_id: z.string().optional().describe('Session ID'),
 		},
 		(args) => {
@@ -197,18 +207,21 @@ export function registerVncTools(server: McpServer): void {
 		'mouse_drag',
 		'Drag the mouse from one position to another with button held. Supports bezier curves via controlPoints.',
 		{
-			startX: z.number().describe('Starting X coordinate'),
-			startY: z.number().describe('Starting Y coordinate'),
-			endX: z.number().describe('Ending X coordinate'),
-			endY: z.number().describe('Ending Y coordinate'),
+			startX: z.coerce.number().describe('Starting X coordinate'),
+			startY: z.coerce.number().describe('Starting Y coordinate'),
+			endX: z.coerce.number().describe('Ending X coordinate'),
+			endY: z.coerce.number().describe('Ending Y coordinate'),
 			button: z
 				.enum(['left', 'middle', 'right'])
 				.optional()
 				.describe('Mouse button (default: left)'),
-			steps: z.number().optional().describe('Interpolation steps along the path (default: 10)'),
-			delay_ms: z.number().optional().describe('Delay between steps in ms (default: 5)'),
+			steps: z.coerce
+				.number()
+				.optional()
+				.describe('Interpolation steps along the path (default: 10)'),
+			delay_ms: z.coerce.number().optional().describe('Delay between steps in ms (default: 5)'),
 			controlPoints: z
-				.array(z.object({ x: z.number(), y: z.number() }))
+				.array(z.object({ x: z.coerce.number(), y: z.coerce.number() }))
 				.optional()
 				.describe('Bezier control points for curved paths. 0=linear, 1=quadratic, 2=cubic'),
 			session_id: z.string().optional().describe('Session ID'),
@@ -227,10 +240,10 @@ export function registerVncTools(server: McpServer): void {
 		'scroll',
 		'Scroll the mouse wheel at a specific position',
 		{
-			x: z.number().describe('X coordinate'),
-			y: z.number().describe('Y coordinate'),
+			x: z.coerce.number().describe('X coordinate'),
+			y: z.coerce.number().describe('Y coordinate'),
 			direction: z.enum(['up', 'down', 'left', 'right']).describe('Scroll direction'),
-			clicks: z.number().optional().describe('Number of scroll steps (default: 3)'),
+			clicks: z.coerce.number().optional().describe('Number of scroll steps (default: 3)'),
 			session_id: z.string().optional().describe('Session ID'),
 		},
 		(args) => {
@@ -263,13 +276,13 @@ export function registerVncTools(server: McpServer): void {
 		'wait_for_screen_change',
 		'Wait until the remote screen content changes or timeout',
 		{
-			timeout_ms: z.number().optional().describe('Maximum wait time in ms (default: 5000)'),
+			timeout_ms: z.coerce.number().optional().describe('Maximum wait time in ms (default: 5000)'),
 			region: z
 				.object({
-					x: z.number(),
-					y: z.number(),
-					width: z.number(),
-					height: z.number(),
+					x: z.coerce.number(),
+					y: z.coerce.number(),
+					width: z.coerce.number(),
+					height: z.coerce.number(),
 				})
 				.optional()
 				.describe('Watch only a specific screen region'),
@@ -332,6 +345,23 @@ export function registerVncTools(server: McpServer): void {
 		(args) => {
 			try {
 				return handleClipboardWrite(args, sessionManager);
+			} catch (err) {
+				return errorResult(err);
+			}
+		},
+	);
+
+	// --- device_button ---
+	server.tool(
+		'device_button',
+		'Press an Android device button (RTC sessions only)',
+		{
+			button: z.enum(['back', 'home', 'power']).describe('Which physical device button to press'),
+			session_id: z.string().optional().describe('Session ID'),
+		},
+		(args) => {
+			try {
+				return handleDeviceButton(args, sessionManager);
 			} catch (err) {
 				return errorResult(err);
 			}
