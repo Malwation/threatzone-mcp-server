@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-The official Threat.Zone MCP (Model Context Protocol) server. Provides VNC and WebRTC computer-use capabilities (screenshots, keyboard/mouse control, clipboard on VNC, file transfer on VNC, Android device buttons on RTC) over stdio transport. Structured as a multi-domain server where each feature domain (VNC, RTC, future APIs) is self-contained but shares a `RemoteSession` interface that tool handlers consume.
+The official Threat.Zone MCP (Model Context Protocol) server. Provides VNC and WebRTC computer-use capabilities (screenshots, keyboard/mouse control, clipboard on VNC, file transfer on VNC, Android device buttons on RTC). Defaults to **Streamable HTTP transport** for on-prem hosting; `MCP_TRANSPORT=stdio` flips it back to stdio for local CLI debugging. Structured as a multi-domain server where each feature domain (VNC, RTC, future APIs) is self-contained but shares a `RemoteSession` interface that tool handlers consume.
 
 ## Commands
 
@@ -19,9 +19,11 @@ The official Threat.Zone MCP (Model Context Protocol) server. Provides VNC and W
 
 ## Architecture
 
-`src/index.ts` is a thin orchestrator: creates the `McpServer`, calls domain registration functions, and starts the stdio transport.
+`src/index.ts` is a thin orchestrator: loads `.env` via `dotenv/config`, then branches on `MCP_TRANSPORT`. In HTTP mode it stands up an Express app with one `/mcp` route plus `/healthz`, instantiates a fresh `McpServer` + `StreamableHTTPServerTransport` per MCP session (keyed by the `mcp-session-id` header), and binds to `MCP_HTTP_HOST:MCP_HTTP_PORT` (defaults `127.0.0.1:7860`). In stdio mode it falls back to the original single-server `StdioServerTransport` boot. The same `registerVncTools(server)` runs in both paths.
 
-Each feature domain lives in its own directory under `src/` and exports a `registerXxxTools(server)` function. To add a new domain, create the directory and add one call in `index.ts`.
+Each feature domain lives in its own directory under `src/` and exports a `registerXxxTools(server)` function. To add a new domain, create the directory and add one call inside `startStdio` and `startHttp` in `index.ts` (the per-session McpServer setup).
+
+**Session model.** Each HTTP MCP client gets its own transport + `McpServer`, but the module-level `SessionManager` and `TokenResolver` in `src/vnc/register.ts:23-24` are shared across all of them. Multiple clients can hold concurrent VNC/RTC sessions because they pass distinct `session_id` args to the `connect` tool — but a malicious or buggy client *could* reach another client's session by guessing/observing its `session_id`. This is the single-tenant on-prem trade-off; tighten only if you need multi-tenant isolation.
 
 ### Shared (`src/shared/`)
 
@@ -37,9 +39,8 @@ Each feature domain lives in its own directory under `src/` and exports a `regis
   - `vnc-client.ts` orchestrates backend selection, manages the `Framebuffer` for screenshots.
   - `session-manager.ts` holds multiple named sessions, tracks a default.
   - `ws-transport.ts` provides WebSocket transport for websockify proxies.
-- **`redis/`** — `TokenResolver` resolves session tokens to host:port via Redis keys (`vnc-<token>`). Only active when `REDIS_URL` is set.
 - **`errors.ts`** — `VncError` (extends `McpToolError` from `src/shared/errors.ts`) plus domain-specific error subclasses.
-- **`tools/connect.ts`** — central dispatch. The `url` mode probes `/api/token-info` first (`protocol/token-info.ts`); on `type:vnc` it routes through websockify, on `type:webrtc` it constructs an `RtcClient` and registers it via `SessionManager.register()`. Legacy `token`/`ws_url`/`host:port` modes are kept for back-compat.
+- **`tools/connect.ts`** — central dispatch. Two accepted shapes: `url` (cloudvnc link, e.g. `https://app.threat.zone/cloudvnc?token=UUID`) probes `/api/token-info` and routes to websockify (vnc) or `/webrtc-signal` (webrtc); `ws_url` (+ optional `ws_cookie`) takes a pre-built websockify URL and skips the probe. No host/port, bare-token, or username/password modes — those were removed when Redis support was dropped.
 
 ### RTC domain (`src/rtc/`)
 
@@ -57,7 +58,7 @@ WebRTC client for driving Android device gateways through the novnc `/webrtc-sig
 
 - **`rfb2` has no published types.** `src/vnc/protocol/rfb2.d.ts` is hand-written from runtime inspection. If upgrading `rfb2`, verify augmented properties (`redShift`, `greenShift`, `blueShift`, `bpp`, `depth`) at runtime.
 - **`skipLibCheck: true` is load-bearing** — removing it breaks the build due to `rfb2` lacking proper type exports. RTC code also relies on it because `@roamhq/wrtc`'s type re-exports assume `lib.dom`, which we don't load.
-- **Stdout is the MCP transport.** Any `console.log()` corrupts the protocol stream. Use `console.error()` for debug output only.
+- **Stdout is the MCP transport when `MCP_TRANSPORT=stdio`.** Any `console.log()` corrupts the protocol stream in stdio mode. The codebase uses `console.error()` for debug output everywhere — keep doing that, since the server can be flipped back to stdio at any time and a stray `console.log` would only surface then.
 - **Framebuffer assumes little-endian** pixel layout. Big-endian VNC servers will produce garbled screenshots.
 - **`ffmpeg` and `ffprobe` must be on PATH** for the RTC transport — screenshots spawn them as child processes to decode H.264 → PNG/JPEG and to probe stream dimensions at connect time. Without them, `connect(url:…)` for a webrtc token will fail at the "first frame decoded" step.
 - **H.264 only.** The Android gateway never sends an SDP answer to offers that don't advertise H.264 — silently. That's why the project uses `werift` (pure-JS, can offer H.264) instead of `@roamhq/wrtc` (no H.264). Don't swap libraries back without verifying the codec list.
@@ -66,10 +67,13 @@ WebRTC client for driving Android device gateways through the novnc `/webrtc-sig
 
 ## Environment variables
 
+Loaded from `.env` via `dotenv/config` at startup. See `.env.example` for the canonical template.
+
 | Variable | Default | Purpose |
 |---|---|---|
-| `REDIS_URL` | `null` (disables token connect) | Redis connection string for token resolution |
+| `MCP_TRANSPORT` | `http` | `http` (Streamable HTTP) or `stdio` (local CLI) |
+| `MCP_HTTP_HOST` | `127.0.0.1` | HTTP listener bind address; flip to `0.0.0.0` only behind a reverse proxy |
+| `MCP_HTTP_PORT` | `7860` | HTTP listener port (route is always `/mcp`, plus `/healthz`) |
 | `VNC_CONNECT_TIMEOUT` | `10000` ms | Connection timeout |
 | `VNC_SCREENSHOT_TIMEOUT` | `5000` ms | Framebuffer update timeout |
-| `VNC_DEFAULT_PORT` | `5901` | Fallback port for token-resolved targets |
 | `RTC_CONNECT_TIMEOUT` | `15000` ms | RTC signaling + first-frame timeout |

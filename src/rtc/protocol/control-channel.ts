@@ -50,6 +50,13 @@ export class ControlChannel {
 		this.send(payload);
 	}
 
+	sendClipboard(text: string, paste = true): void {
+		// Mirrors apps/novnc/vnc/www/core/rtc-session.js:419. paste=true makes the
+		// gateway's scrcpy auto-inject a paste keystroke after setting the device
+		// clipboard, which matches the browser's Cmd/Ctrl+V intercept behavior.
+		this.send({ type: 'clipboard', text, paste });
+	}
+
 	private send(payload: unknown): void {
 		if (this.dc.readyState !== 'open') {
 			throw new RtcConnectionError(`Control channel is not open (state: ${this.dc.readyState})`);

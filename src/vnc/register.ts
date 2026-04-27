@@ -2,7 +2,6 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { errorResult } from './errors.js';
 import { SessionManager } from './protocol/session-manager.js';
-import { TokenResolver } from './redis/token-resolver.js';
 import { handleClipboardRead } from './tools/clipboard-read.js';
 import { handleClipboardWrite } from './tools/clipboard-write.js';
 import { handleConnect } from './tools/connect.js';
@@ -21,46 +20,34 @@ import { handleTypeText } from './tools/type-text.js';
 import { handleWaitForScreenChange } from './tools/wait-for-screen-change.js';
 
 const sessionManager = new SessionManager();
-const tokenResolver = process.env.REDIS_URL ? new TokenResolver(process.env.REDIS_URL) : null;
 
 export function registerVncTools(server: McpServer): void {
 	// --- connect ---
 	server.tool(
 		'connect',
-		'Connect to a VNC server by URL (recommended), token, ws_url, or direct host:port',
+		'Connect to a Threat.Zone session by cloudvnc URL or raw websockify URL',
 		{
 			url: z
 				.string()
 				.optional()
 				.describe(
-					'Full novnc URL with embedded token, e.g. https://host:9191/?token=UUID. Probes /api/token-info first; routes vnc tokens through websockify and rejects webrtc tokens with UNSUPPORTED_TRANSPORT.',
+					'Cloudvnc URL with embedded token, e.g. https://app.threat.zone/cloudvnc?token=UUID. Probes /api/token-info first and routes to VNC websockify or WebRTC signaling depending on the token type.',
 				),
-			token: z
-				.string()
-				.optional()
-				.describe('VNC session token (resolved via Redis key vnc-<token>)'),
-			host: z.string().optional().describe('VNC server hostname or IP'),
-			port: z.coerce.number().optional().describe('VNC server port (default: 5901)'),
-			username: z
-				.string()
-				.optional()
-				.describe('Username for VeNCrypt authentication (RealVNC servers)'),
-			password: z.string().optional().describe('VNC authentication password'),
 			ws_url: z
 				.string()
 				.optional()
 				.describe(
-					'WebSocket URL for connecting through websockify proxy (e.g. wss://host:9191/websockify?token=UUID)',
+					'Raw websockify URL when you already have one (e.g. wss://host:9191/?token=UUID). Use `url` instead unless you know you need this.',
 				),
 			ws_cookie: z
 				.string()
 				.optional()
-				.describe('Cookie header value for authenticated WebSocket connections'),
+				.describe('Cookie header value for authenticated websockify connections (paired with ws_url)'),
 			session_id: z.string().optional().describe('Custom session identifier'),
 		},
 		async (args) => {
 			try {
-				return await handleConnect(args, sessionManager, tokenResolver);
+				return await handleConnect(args, sessionManager);
 			} catch (err) {
 				return errorResult(err);
 			}

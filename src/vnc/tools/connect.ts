@@ -3,15 +3,9 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { RtcClient } from '../../rtc/protocol/rtc-client.js';
 import type { SessionManager } from '../protocol/session-manager.js';
 import { buildVncWsUrl, fetchTokenType, parseTokenUrl } from '../protocol/token-info.js';
-import type { TokenResolver } from '../redis/token-resolver.js';
 
 export interface ConnectArgs {
 	url?: string;
-	token?: string;
-	host?: string;
-	port?: number;
-	username?: string;
-	password?: string;
 	ws_url?: string;
 	ws_cookie?: string;
 	session_id?: string;
@@ -20,7 +14,6 @@ export interface ConnectArgs {
 export async function handleConnect(
 	args: ConnectArgs,
 	sessionManager: SessionManager,
-	tokenResolver: TokenResolver | null,
 ): Promise<CallToolResult> {
 	if (args.url) {
 		// Token-URL mode: probe /api/token-info first, then route to whichever
@@ -65,43 +58,23 @@ export async function handleConnect(
 		);
 	}
 
-	let host: string;
-	let port: number;
-	let wsUrl: string | undefined;
-
 	if (args.ws_url) {
-		// WebSocket connection — host/port are just labels for the session
-		wsUrl = args.ws_url;
-		host = new URL(args.ws_url).hostname;
-		port = Number(new URL(args.ws_url).port) || 443;
-	} else if (args.token) {
-		if (!tokenResolver) {
-			return {
-				content: [
-					{ type: 'text', text: 'Error: Token resolution requires REDIS_URL environment variable' },
-				],
-				isError: true,
-			};
-		}
-		const target = await tokenResolver.resolve(args.token);
-		host = target.host;
-		port = target.port;
-	} else if (args.host) {
-		host = args.host;
-		port = args.port ?? (Number(process.env.VNC_DEFAULT_PORT) || 5901);
-	} else {
-		return {
-			content: [
-				{
-					type: 'text',
-					text: 'Error: One of "url", "ws_url", "token", or "host" must be provided',
-				},
-			],
-			isError: true,
-		};
+		// Raw websockify URL — host/port are just labels for the session.
+		const parsed = new URL(args.ws_url);
+		const host = parsed.hostname;
+		const port = Number(parsed.port) || 443;
+		return await connectVncFlow(sessionManager, args, host, port, args.ws_url);
 	}
 
-	return await connectVncFlow(sessionManager, args, host, port, wsUrl);
+	return {
+		content: [
+			{
+				type: 'text',
+				text: 'Error: provide "url" (cloudvnc link, e.g. https://app.threat.zone/cloudvnc?token=...) or "ws_url" (raw websockify URL).',
+			},
+		],
+		isError: true,
+	};
 }
 
 async function connectVncFlow(
@@ -116,8 +89,6 @@ async function connectVncFlow(
 	const client = await sessionManager.connectVnc({
 		host,
 		port,
-		username: args.username,
-		password: args.password,
 		wsUrl,
 		wsHeaders,
 		sessionId: args.session_id,

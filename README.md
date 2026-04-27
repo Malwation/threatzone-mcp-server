@@ -7,9 +7,8 @@ Official [Threat.Zone](https://threat.zone) MCP (Model Context Protocol) server.
 ## Features
 
 - **Multiple VNC backends** — auto-selects between RFB (None/VNC-Auth), RSA-AES, and VeNCrypt/TLS based on server security type
-- **WebSocket proxy support** — connect through websockify proxies for browser-accessible VNC
-- **Redis token resolution** — resolve session tokens to VNC targets via Redis
-- **Multi-session** — manage multiple concurrent VNC connections with named sessions
+- **CloudVNC URL connect** — paste a `https://app.threat.zone/cloudvnc?token=...` URL; the server probes `/api/token-info` and routes to VNC websockify or WebRTC signaling automatically
+- **Multi-session** — manage multiple concurrent VNC/RTC connections with named sessions
 - **Screenshot capture** — PNG/JPEG with optional region cropping and quality control
 - **Full input control** — keyboard (key names, keysyms, modifiers), mouse (click, move, drag with bezier curves, scroll)
 - **Clipboard access** — read/write remote clipboard (UTF-8 with Extended Clipboard support)
@@ -56,10 +55,9 @@ yarn start:dev
 
 | Variable | Default | Description |
 |---|---|---|
-| `REDIS_URL` | *(disabled)* | Redis connection string for token-based session resolution |
 | `VNC_CONNECT_TIMEOUT` | `10000` | Connection timeout in milliseconds |
 | `VNC_SCREENSHOT_TIMEOUT` | `5000` | Framebuffer update timeout in milliseconds |
-| `VNC_DEFAULT_PORT` | `5901` | Default VNC port when not specified in token data |
+| `RTC_CONNECT_TIMEOUT` | `15000` | RTC signaling + first-frame timeout in milliseconds |
 
 ## Tools Reference
 
@@ -67,20 +65,16 @@ yarn start:dev
 
 | Tool | Description |
 |---|---|
-| `connect` | Connect to a VNC server via direct host:port, WebSocket URL, or Redis token |
-| `disconnect` | Disconnect from a VNC session |
+| `connect` | Connect to a Threat.Zone session by cloudvnc URL or raw websockify URL |
+| `disconnect` | Disconnect from a session |
 
 **`connect` parameters:**
 
 | Parameter | Type | Description |
 |---|---|---|
-| `host` | string | VNC server hostname or IP |
-| `port` | number | VNC server port (default: 5901) |
-| `ws_url` | string | WebSocket URL for websockify proxy |
-| `ws_cookie` | string | Cookie header for authenticated WebSocket connections |
-| `token` | string | Session token resolved via Redis (`vnc-<token>` key) |
-| `username` | string | Username for VeNCrypt/RSA-AES authentication |
-| `password` | string | VNC authentication password |
+| `url` | string | Cloudvnc URL with embedded token (e.g. `https://app.threat.zone/cloudvnc?token=UUID`). Probes `/api/token-info` to route VNC vs. WebRTC. |
+| `ws_url` | string | Raw websockify URL when you already have one (e.g. `wss://host:9191/?token=UUID`). Skips the token-info probe. |
+| `ws_cookie` | string | Cookie header for authenticated websockify connections (paired with `ws_url`) |
 | `session_id` | string | Custom session identifier |
 
 ### Screen
@@ -125,39 +119,34 @@ Both file transfer tools support Windows (PowerShell) and Linux (bash + xclip) v
 
 ## Connection Methods
 
-### Direct connection
+### CloudVNC URL (recommended)
+
+Paste the URL you get from the Threat.Zone UI. The server probes `/api/token-info` and routes VNC tokens through websockify and WebRTC tokens through `/webrtc-signal`:
 
 ```
-connect(host: "192.168.1.100", port: 5901, password: "secret")
+connect(url: "https://app.threat.zone/cloudvnc?token=UUID")
 ```
 
-### WebSocket proxy (websockify)
+### Raw websockify URL
+
+For cases where you already have a built websockify URL and want to skip the token-info probe:
 
 ```
-connect(ws_url: "wss://app.threat.zone/cloudvnc?token=UUID", ws_cookie: "sessionid=...")
-```
-
-### Redis token resolution
-
-Requires `REDIS_URL` to be set. Looks up `vnc-<token>` key in Redis, expecting JSON with `host` and optionally `port`.
-
-```
-connect(token: "session-uuid")
+connect(ws_url: "wss://app.threat.zone/?token=UUID", ws_cookie: "sessionid=...")
 ```
 
 ## Architecture
 
 ```
 src/
-├── index.ts              # Orchestrator: creates McpServer, registers domains, starts stdio transport
-├── shared/
-│   └── errors.ts         # McpToolError base class
+├── index.ts              # Orchestrator: loads .env, picks transport (HTTP/stdio), wires McpServer
+├── shared/               # RemoteSession interface + McpToolError base
+├── rtc/                  # WebRTC client for Android device gateways (werift, H.264)
 └── vnc/
-    ├── register.ts       # registerVncTools(server) — all 15 tool registrations
+    ├── register.ts       # registerVncTools(server) — all 16 tool registrations
     ├── errors.ts         # VNC-specific error classes
     ├── tools/            # One handler file per MCP tool
-    ├── protocol/         # VNC protocol layer (rfb2, RSA-AES, VeNCrypt backends)
-    └── redis/            # Token resolver
+    └── protocol/         # VNC protocol layer (rfb2, RSA-AES, VeNCrypt backends)
 ```
 
 The server auto-detects the appropriate VNC backend by probing the remote server's supported security types:

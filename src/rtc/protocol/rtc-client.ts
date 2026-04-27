@@ -15,11 +15,7 @@ import type {
 	RemoteTransport,
 	ScreenSize,
 } from '../../shared/remote-session.js';
-import {
-	MissingParameterSetsError,
-	RtcConnectionError,
-	UnsupportedOnTransportError,
-} from '../errors.js';
+import { MissingParameterSetsError, RtcConnectionError } from '../errors.js';
 import { ControlChannel, type DataChannelLike } from './control-channel.js';
 import { keysymToCode } from './keysym-to-code.js';
 import {
@@ -79,6 +75,10 @@ export class RtcClient implements RemoteSession {
 	private connectTimeoutMs: number;
 	private firstFrameTimeoutMs: number;
 	private lastButtonMask = 0;
+	// Most recent device → host clipboard text. Populated by the gateway whenever
+	// the Android clipboard changes (clipboard_autosync=true on scrcpy). Mirrors
+	// the VNC client's clipboard cache so clipboard_read returns the same shape.
+	private lastClipboard: string | null = null;
 
 	constructor(config: RtcClientConfig, options?: RtcClientOptions) {
 		this.config = config;
@@ -203,6 +203,10 @@ export class RtcClient implements RemoteSession {
 			// Order matters: declare data channel BEFORE createOffer so the SDP
 			// includes the data m-line (mirrors rtc-session.js:87-88).
 			this.dc = this.pc.createDataChannel('control', { ordered: true });
+
+			// Device → host messages on the same control channel (clipboard sync today).
+			// Mirrors apps/novnc/vnc/www/core/rtc-session.js:146,422-444.
+			this.dc.onMessage.subscribe((data) => this.onDeviceMessage(data));
 
 			const dcOpen = new Promise<void>((resolve, reject) => {
 				if (!this.dc) return;
@@ -424,12 +428,18 @@ export class RtcClient implements RemoteSession {
 		this.requireControl().sendDeviceButton(button);
 	}
 
-	updateClipboard(_text: string): void {
-		throw new UnsupportedOnTransportError('rtc', 'clipboard_write');
+	updateClipboard(text: string): void {
+		this.ensureConnected();
+		// paste=true matches the browser's Cmd/Ctrl+V intercept: the gateway sets
+		// the device clipboard AND injects a paste keystroke so the text lands in
+		// whatever input field is currently focused on the device.
+		this.requireControl().sendClipboard(text, true);
 	}
 
 	getClipboard(): string | null {
-		throw new UnsupportedOnTransportError('rtc', 'clipboard_read');
+		// Populated by onDeviceMessage as the gateway pushes clipboard updates.
+		// Returns null until the device has sent at least one clipboard event.
+		return this.lastClipboard;
 	}
 
 	requestFramebufferUpdate(_incremental: boolean): void {
@@ -445,5 +455,25 @@ export class RtcClient implements RemoteSession {
 	private requireControl(): ControlChannel {
 		if (!this.control) throw new RtcConnectionError('Control channel not open');
 		return this.control;
+	}
+
+	private onDeviceMessage(data: string | Buffer): void {
+		// werift hands us either a string or a Buffer depending on how the gateway
+		// framed the message. The browser does the same dance — see rtc-session.js:423-436.
+		let text: string;
+		try {
+			text = typeof data === 'string' ? data : data.toString('utf-8');
+		} catch {
+			return;
+		}
+		let msg: { type?: unknown; text?: unknown };
+		try {
+			msg = JSON.parse(text);
+		} catch {
+			return;
+		}
+		if (msg.type === 'clipboard' && typeof msg.text === 'string') {
+			this.lastClipboard = msg.text;
+		}
 	}
 }
