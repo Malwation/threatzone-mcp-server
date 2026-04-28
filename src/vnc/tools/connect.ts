@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { RtcClient } from '../../rtc/protocol/rtc-client.js';
 import type { SessionManager } from '../protocol/session-manager.js';
-import { buildVncWsUrl, fetchTokenType, parseTokenUrl } from '../protocol/token-info.js';
+import { buildVncWsUrl, fetchTokenType, normalizeConnectInput } from '../protocol/token-info.js';
 
 export interface ConnectArgs {
 	url?: string;
@@ -16,9 +16,24 @@ export async function handleConnect(
 	sessionManager: SessionManager,
 ): Promise<CallToolResult> {
 	if (args.url) {
-		// Token-URL mode: probe /api/token-info first, then route to whichever
-		// transport the gateway advertises. Mirrors apps/novnc/vnc/www/app/ui.js.
-		const { origin, token } = parseTokenUrl(args.url);
+		const normalized = normalizeConnectInput(args.url);
+
+		if (normalized.kind === 'websockify') {
+			// Pre-resolved by the normalizer (UUID / submission URL / ws:// upgrade /
+			// passthrough wss). Skip the /api/token-info probe and connect directly.
+			const parsed = new URL(normalized.wsUrl);
+			return await connectVncFlow(
+				sessionManager,
+				args,
+				parsed.hostname,
+				Number(parsed.port) || (parsed.protocol === 'wss:' ? 443 : 80),
+				normalized.wsUrl,
+			);
+		}
+
+		// kind === 'cloudvnc' — legacy http(s)://host/cloudvnc?token=… form.
+		// Probe /api/token-info to pick VNC websockify vs WebRTC signaling.
+		const { origin, token } = normalized;
 		const type = await fetchTokenType(origin, token);
 
 		if (type === 'webrtc') {
@@ -70,7 +85,7 @@ export async function handleConnect(
 		content: [
 			{
 				type: 'text',
-				text: 'Error: provide "url" (cloudvnc link, e.g. https://app.threat.zone/cloudvnc?token=...) or "ws_url" (raw websockify URL).',
+				text: 'Error: provide "url" (submission UUID, https://app.threat.zone/submission/<UUID>, https://app.threat.zone/cloudvnc?token=<UUID>, or wss://...) or "ws_url" (raw websockify URL).',
 			},
 		],
 		isError: true,

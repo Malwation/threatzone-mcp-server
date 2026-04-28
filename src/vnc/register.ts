@@ -25,13 +25,13 @@ export function registerVncTools(server: McpServer): void {
 	// --- connect ---
 	server.tool(
 		'connect',
-		'Connect to a Threat.Zone session by cloudvnc URL or raw websockify URL',
+		'Connect to a Threat.Zone session by submission UUID, submission URL, cloudvnc URL, or raw websockify URL',
 		{
 			url: z
 				.string()
 				.optional()
 				.describe(
-					'Cloudvnc URL with embedded token, e.g. https://app.threat.zone/cloudvnc?token=UUID. Probes /api/token-info first and routes to VNC websockify or WebRTC signaling depending on the token type.',
+					'One of: bare submission UUID (e.g. 9a6f8a57-…); submission page URL (https://app.threat.zone/submission/<UUID>[/dynamic-scan-report]); cloudvnc URL (https://app.threat.zone/cloudvnc?token=UUID — probes /api/token-info to route VNC vs WebRTC); or ws/wss URL (ws:// is auto-upgraded to wss://). Bare UUIDs default to host app.threat.zone.',
 				),
 			ws_url: z
 				.string()

@@ -119,17 +119,46 @@ Both file transfer tools support Windows (PowerShell) and Linux (bash + xclip) v
 
 ## Connection Methods
 
-### CloudVNC URL (recommended)
+The single `url` argument accepts every shape below — the server normalizes each to a canonical websockify URL (`wss://<host>/cloudvnc?token=<UUID>`) and connects.
 
-Paste the URL you get from the Threat.Zone UI. The server probes `/api/token-info` and routes VNC tokens through websockify and WebRTC tokens through `/webrtc-signal`:
+### Submission UUID
+
+Paste just the submission UUID. Defaults to `app.threat.zone`:
+
+```
+connect(url: "9a6f8a57-b9d8-4372-b600-f4d196f5da43")
+# → wss://app.threat.zone/cloudvnc?token=9a6f8a57-b9d8-4372-b600-f4d196f5da43
+```
+
+### Submission page URL
+
+Paste the URL from your browser address bar. Trailing path (e.g. `/dynamic-scan-report`) is ignored:
+
+```
+connect(url: "https://app.threat.zone/submission/9a6f8a57-b9d8-4372-b600-f4d196f5da43/dynamic-scan-report")
+# → wss://app.threat.zone/cloudvnc?token=9a6f8a57-b9d8-4372-b600-f4d196f5da43
+```
+
+### CloudVNC URL
+
+Probes `/api/token-info` to route VNC tokens through websockify and WebRTC tokens through `/webrtc-signal`:
 
 ```
 connect(url: "https://app.threat.zone/cloudvnc?token=UUID")
 ```
 
-### Raw websockify URL
+### ws:// or wss:// URL
 
-For cases where you already have a built websockify URL and want to skip the token-info probe:
+`ws://` is auto-upgraded to `wss://`; `wss://` is passed through verbatim:
+
+```
+connect(url: "ws://app.threat.zone/cloudvnc?token=UUID")
+# → wss://app.threat.zone/cloudvnc?token=UUID
+```
+
+### Raw websockify URL (legacy `ws_url` arg)
+
+When you need to attach a `Cookie` header for an authenticated websockify connection:
 
 ```
 connect(ws_url: "wss://app.threat.zone/?token=UUID", ws_cookie: "sessionid=...")
