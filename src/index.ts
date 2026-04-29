@@ -5,6 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import express from 'express';
+import { registerApiTools } from './api/register.js';
 import { registerVncTools } from './vnc/register.js';
 
 const transportMode = (process.env.MCP_TRANSPORT ?? 'http').toLowerCase();
@@ -12,6 +13,7 @@ const transportMode = (process.env.MCP_TRANSPORT ?? 'http').toLowerCase();
 async function startStdio(): Promise<void> {
 	const server = new McpServer({ name: 'threatzone-mcp', version: '1.0.0' });
 	registerVncTools(server);
+	registerApiTools(server);
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
 }
@@ -47,6 +49,7 @@ async function startHttp(): Promise<void> {
 			};
 			const server = new McpServer({ name: 'threatzone-mcp', version: '1.0.0' });
 			registerVncTools(server);
+			registerApiTools(server);
 			await server.connect(transport);
 		} else if (!transport) {
 			res.status(400).json({
