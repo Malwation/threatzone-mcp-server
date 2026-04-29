@@ -59,7 +59,7 @@ function mapStatusToError(
 }
 
 // Attempts to parse an error response body as the canonical error envelope.
-// Returns a typed ApiError on success, or null if the body is not valid JSON envelope.
+// Returns a typed ApiError on success, or a best-effort generic ApiError otherwise.
 async function parseErrorResponse(res: Response): Promise<ApiError | null> {
 	const rawText = await res.text().catch(() => '');
 	try {
@@ -76,6 +76,24 @@ async function parseErrorResponse(res: Response): Promise<ApiError | null> {
 				code?: string;
 				details?: unknown;
 			};
+
+			// Detect NestJS framework default 404 ("Cannot GET /path") which lacks a
+			// typed `code` field. This usually means the deployed API doesn't have
+			// this route — surface a clearer message than the raw "UNKNOWN_ERROR".
+			if (
+				typeof envelope.code !== 'string' &&
+				res.status === 404 &&
+				typeof envelope.message === 'string' &&
+				/^Cannot (GET|POST|PUT|DELETE|PATCH) /i.test(envelope.message)
+			) {
+				return mapStatusToError(
+					res.status,
+					`Endpoint not implemented at this URL (${envelope.message}). The deployed API version may not include this route, or the path is wrong. Check the OpenAPI spec at <THREATZONE_API_BASE_URL>/docs-json to confirm the route exists.`,
+					'ROUTE_NOT_IMPLEMENTED',
+					envelope.details,
+				);
+			}
+
 			const code = typeof envelope.code === 'string' ? envelope.code : 'UNKNOWN_ERROR';
 			return mapStatusToError(res.status, envelope.message, code, envelope.details);
 		}

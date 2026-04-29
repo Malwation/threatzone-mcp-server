@@ -9,7 +9,11 @@ const MODIFIER_KEYSYMS: Record<string, number> = {
 	alt: 0xffe9,
 	shift: 0xffe1,
 	super: 0xffeb,
-	meta: 0xffe7,
+	// `meta` aliases to Super_L (0xffeb), NOT Meta_L (0xffe7). On macOS the
+	// Cmd key is the de-facto Super_L; on Linux DEs Super_L is the Win/Cmd
+	// key too. Meta_L (0xffe7) has no physical key on most modern keyboards
+	// and silently produces no action when sent to a typical VNC server.
+	meta: 0xffeb,
 };
 
 const KEY_MAP: Record<string, number> = {
@@ -70,8 +74,10 @@ const KEY_MAP: Record<string, number> = {
 	Control_L: 0xffe3,
 	Control_R: 0xffe4,
 	Caps_Lock: 0xffe5,
-	Meta_L: 0xffe7,
-	Meta_R: 0xffe8,
+	// Meta_L/Meta_R aliased to Super_L/Super_R for consistency with the
+	// `meta` modifier alias (most VNC servers map Cmd/Win to Super_L).
+	Meta_L: 0xffeb,
+	Meta_R: 0xffec,
 	Alt_L: 0xffe9,
 	Alt_R: 0xffea,
 	Super_L: 0xffeb,
