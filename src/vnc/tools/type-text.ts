@@ -8,6 +8,12 @@ export interface TypeTextArgs {
 	session_id?: string;
 }
 
+const SHIFT_L_KEYSYM = 0xffe1;
+
+// `~ | " @ #` deliberately excluded — different physical keys on US vs UK,
+// so bracketing produces a layout swap (`~`↔`|`, `"`↔`@`).
+const SHIFTED_ASCII_REGEX = /[A-Z!$%^&*()_+{}:<>?]/;
+
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -21,8 +27,17 @@ export async function handleTypeText(
 
 	for (const char of args.text) {
 		const keysym = resolveKeysym(char);
+		const needsShift = SHIFTED_ASCII_REGEX.test(char);
+
+		if (needsShift) {
+			client.sendKey(SHIFT_L_KEYSYM, true);
+		}
 		client.sendKey(keysym, true);
 		client.sendKey(keysym, false);
+		if (needsShift) {
+			client.sendKey(SHIFT_L_KEYSYM, false);
+		}
+
 		if (delay > 0) {
 			await sleep(delay);
 		}

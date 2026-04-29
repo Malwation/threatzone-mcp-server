@@ -438,7 +438,13 @@ export class VeNCryptClient extends EventEmitter implements RfbBackend {
 		this.write(spf);
 
 		// SetEncodings
-		const encodingList = [ENCODINGS.raw, ENCODINGS.copyRect, ENCODINGS.pseudoDesktopSize];
+		// extendedClipboard required — macOS VNC drops legacy Latin-1 cutText silently.
+		const encodingList = [
+			ENCODINGS.raw,
+			ENCODINGS.copyRect,
+			ENCODINGS.pseudoDesktopSize,
+			ENCODINGS.extendedClipboard,
+		];
 		const se = Buffer.alloc(4 + encodingList.length * 4);
 		se[0] = CLIENT_MSG.setEncodings;
 		se.writeUInt16BE(encodingList.length, 2);

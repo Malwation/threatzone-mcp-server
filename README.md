@@ -58,6 +58,9 @@ yarn start:dev
 | `VNC_CONNECT_TIMEOUT` | `10000` | Connection timeout in milliseconds |
 | `VNC_SCREENSHOT_TIMEOUT` | `5000` | Framebuffer update timeout in milliseconds |
 | `RTC_CONNECT_TIMEOUT` | `15000` | RTC signaling + first-frame timeout in milliseconds |
+| `THREATZONE_API_TOKEN` | _(required for API tools)_ | API token for the Threat.Zone Public API; per-tool `api_token` arg overrides this |
+| `THREATZONE_API_BASE_URL` | `https://app.threat.zone/public-api` | Override the API base URL (e.g. for on-prem) |
+| `THREATZONE_ALLOW_SUBMIT` | `false` | Set to `true` to enable submit tools (POST endpoints consume plan quota) |
 
 ## Tools Reference
 
@@ -116,6 +119,104 @@ yarn start:dev
 | `file_download` | Download a file from the remote machine as base64 via clipboard + shell commands |
 
 Both file transfer tools support Windows (PowerShell) and Linux (bash + xclip) via the `os` parameter.
+
+## API Tools
+
+The server wraps the full [Threat.Zone Public API](https://app.threat.zone/public-api/guide) (v3.2.0, 48 endpoints). Set `THREATZONE_API_TOKEN` and optionally `THREATZONE_API_BASE_URL` to use these tools. Every tool also accepts an optional `api_token` argument to override the env var on a per-call basis.
+
+> **Read-only by default.** Submit tools (POST endpoints) are only registered when `THREATZONE_ALLOW_SUBMIT=true`. Each submit call consumes daily plan quota — set this intentionally.
+
+### Account & Config
+
+| Tool | Description |
+|---|---|
+| `tz_me` | Get account info, workspace, plan limits, and enabled modules |
+| `tz_config_metafields` | All metafield options across all submission types |
+| `tz_config_metafields_sandbox` | Sandbox-specific metafield options |
+| `tz_config_metafields_static` | Static analysis metafield options |
+| `tz_config_metafields_cdr` | CDR metafield options |
+| `tz_config_metafields_url` | URL analysis metafield options |
+| `tz_config_metafields_open_in_browser` | Open-in-browser metafield options |
+| `tz_config_environments` | Available sandbox OS environments |
+| `tz_network_configs_list` | Workspace network configurations (proxy/VPN profiles) |
+
+### Submission Browse
+
+| Tool | Description |
+|---|---|
+| `tz_submissions_list` | Paginated list with filters (level, type, sha256, filename, tags, dates) — uses `page`/`limit` |
+| `tz_submission_get` | Get a single submission by UUID |
+| `tz_submission_search_sha256` | Find submissions by exact SHA256 hash (returns flat array, no pagination) |
+
+### Analysis Reports
+
+| Tool | Description |
+|---|---|
+| `tz_submission_summary` | High-level verdict rollup across all analysis modules |
+| `tz_submission_indicators` | Paginated behavioural indicators (filterable by level, category, PID, ATT&CK code) |
+| `tz_submission_iocs` | Paginated IoCs (domains, IPs, URLs, hashes, registry keys, file paths) |
+| `tz_submission_yara_rules` | Paginated YARA rule hits |
+| `tz_submission_artifacts` | Full artifact list (no pagination) |
+| `tz_submission_mitre` | MITRE ATT&CK technique mappings |
+| `tz_submission_extracted_configs` | Extracted malware configuration data |
+| `tz_submission_eml_analysis` | EML email analysis (email submissions only) |
+
+### Dynamic Analysis
+
+| Tool | Description |
+|---|---|
+| `tz_submission_processes` | Process list captured during dynamic analysis |
+| `tz_submission_process_tree` | Process spawn tree (parent–child relationships) |
+| `tz_submission_behaviours` | Paginated behaviour events (file/registry/network/process/mutex) |
+| `tz_submission_syscalls` | Paginated syscall trace (default `limit=500`) |
+
+### Network Analysis
+
+All paginated network sub-reports use `limit`/`skip` offset pagination — NOT `page`/`limit`.
+
+| Tool | Description |
+|---|---|
+| `tz_network_summary` | Network activity summary (per-protocol counts) |
+| `tz_network_dns` | DNS query/response records |
+| `tz_network_http` | HTTP request/response records |
+| `tz_network_tcp` | TCP connection records |
+| `tz_network_udp` | UDP connection records |
+| `tz_network_threats` | Suricata-style network threat detections |
+
+### Specialised Reports
+
+| Tool | Description |
+|---|---|
+| `tz_submission_static_scan` | Static analysis scan results per artifact |
+| `tz_submission_cdr` | CDR analysis metadata (use `tz_download_cdr` for the sanitized file) |
+| `tz_submission_signature_check` | Code-signing signature verification |
+| `tz_submission_url_analysis` | Full URL analysis report (URL submissions only) |
+| `tz_submission_media_list` | List media files captured during dynamic analysis |
+
+### Downloads
+
+Binary responses are returned as base64 (max 25 MB inline). Use `save_to: "/absolute/path"` to write larger files directly to disk; the response then carries only `{ saved, path, size, mimetype }`.
+
+| Tool | Description |
+|---|---|
+| `tz_download_sample` | Download original sample as password-protected ZIP (password: `infected`) |
+| `tz_download_artifact` | Download a specific artifact by ID (from `tz_submission_artifacts`) |
+| `tz_download_pcap` | Download network capture (PCAP) |
+| `tz_download_yara_rule` | Download generated YARA rule file |
+| `tz_download_html_report` | Download full HTML analysis report |
+| `tz_download_cdr` | Download CDR-sanitized output file |
+| `tz_download_screenshot` | Download URL analysis screenshot (PNG) |
+| `tz_download_media` | Download a media file from dynamic analysis by file ID |
+
+### Submit (gated — requires `THREATZONE_ALLOW_SUBMIT=true`)
+
+| Tool | Description |
+|---|---|
+| `tz_submit_sandbox` | Submit a file for full sandbox (static + dynamic) analysis |
+| `tz_submit_static` | Submit a file for static analysis only |
+| `tz_submit_cdr` | Submit a file for CDR (Content Disarm & Reconstruction) |
+| `tz_submit_url` | Submit a URL for URL analysis |
+| `tz_submit_open_in_browser` | Submit a URL to open in a sandboxed browser |
 
 ## Connection Methods
 

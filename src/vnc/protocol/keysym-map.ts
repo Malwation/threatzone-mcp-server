@@ -9,7 +9,8 @@ const MODIFIER_KEYSYMS: Record<string, number> = {
 	alt: 0xffe9,
 	shift: 0xffe1,
 	super: 0xffeb,
-	meta: 0xffe7,
+	// alias to Super_L: macOS Cmd / Linux Win. Meta_L (0xffe7) has no physical key.
+	meta: 0xffeb,
 };
 
 const KEY_MAP: Record<string, number> = {
@@ -70,8 +71,8 @@ const KEY_MAP: Record<string, number> = {
 	Control_L: 0xffe3,
 	Control_R: 0xffe4,
 	Caps_Lock: 0xffe5,
-	Meta_L: 0xffe7,
-	Meta_R: 0xffe8,
+	Meta_L: 0xffeb,
+	Meta_R: 0xffec,
 	Alt_L: 0xffe9,
 	Alt_R: 0xffea,
 	Super_L: 0xffeb,
