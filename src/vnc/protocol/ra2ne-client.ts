@@ -819,10 +819,7 @@ export class Ra2neClient extends EventEmitter implements RfbBackend {
 		pf.copy(spf, 4);
 		this.write(spf);
 
-		// SetEncodings
-		// extendedClipboard is required for clipboard writes to actually reach
-		// the host system clipboard on many VNC servers (notably the macOS one
-		// used in Threat.Zone sandboxes). See vencrypt-client.ts for details.
+		// extendedClipboard required — macOS VNC drops legacy Latin-1 cutText silently.
 		const encodingList = [
 			ENCODINGS.raw,
 			ENCODINGS.copyRect,

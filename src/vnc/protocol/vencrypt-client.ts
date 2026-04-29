@@ -438,13 +438,7 @@ export class VeNCryptClient extends EventEmitter implements RfbBackend {
 		this.write(spf);
 
 		// SetEncodings
-		// extendedClipboard is required for the modern UTF-8 clipboard sync path.
-		// Many VNC servers (notably the macOS one used in Threat.Zone sandboxes)
-		// only propagate clipboard writes to the host system clipboard when the
-		// Extended Clipboard message format is used; the legacy Latin-1 path is
-		// silently dropped. Advertising -260 here causes the server to send caps
-		// (handled in onServerCutText), which sets serverSupportsExtClipboard and
-		// switches clientCutText() to the deflate+UTF-8 path.
+		// extendedClipboard required — macOS VNC drops legacy Latin-1 cutText silently.
 		const encodingList = [
 			ENCODINGS.raw,
 			ENCODINGS.copyRect,

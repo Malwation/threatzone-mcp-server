@@ -77,9 +77,7 @@ async function parseErrorResponse(res: Response): Promise<ApiError | null> {
 				details?: unknown;
 			};
 
-			// Detect NestJS framework default 404 ("Cannot GET /path") which lacks a
-			// typed `code` field. This usually means the deployed API doesn't have
-			// this route — surface a clearer message than the raw "UNKNOWN_ERROR".
+			// NestJS default 404 ("Cannot GET /path") — usually deploy lag, not a real 404.
 			if (
 				typeof envelope.code !== 'string' &&
 				res.status === 404 &&
@@ -88,7 +86,7 @@ async function parseErrorResponse(res: Response): Promise<ApiError | null> {
 			) {
 				return mapStatusToError(
 					res.status,
-					`Endpoint not implemented at this URL (${envelope.message}). The deployed API version may not include this route, or the path is wrong. Check the OpenAPI spec at <THREATZONE_API_BASE_URL>/docs-json to confirm the route exists.`,
+					`Route not implemented at this URL (${envelope.message}). Check the OpenAPI spec at <base>/docs-json.`,
 					'ROUTE_NOT_IMPLEMENTED',
 					envelope.details,
 				);
