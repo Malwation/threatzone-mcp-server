@@ -7,7 +7,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { apiRequest } from '../client.js';
 import { isSubmitAllowed } from '../config.js';
-import { BadRequestError, apiErrorResult } from '../errors.js';
+import { apiErrorResult, BadRequestError } from '../errors.js';
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MiB
 
@@ -59,10 +59,7 @@ async function loadFileForUpload(args: FileSource): Promise<{ bytes: Buffer; fil
 	}
 
 	if (!args.filename) {
-		throw new BadRequestError(
-			'filename is required when using file_base64',
-			'FILENAME_REQUIRED',
-		);
+		throw new BadRequestError('filename is required when using file_base64', 'FILENAME_REQUIRED');
 	}
 	const bytes = Buffer.from(args.file_base64 as string, 'base64');
 	return { bytes, filename: args.filename };
