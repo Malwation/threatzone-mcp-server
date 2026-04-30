@@ -2,166 +2,196 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Official [Threat.Zone](https://threat.zone) MCP (Model Context Protocol) server. Provides VNC computer-use capabilities — screenshots, keyboard/mouse control, clipboard access, and file transfer — enabling AI agents to interact with remote desktops in Threat.Zone sandbox environments.
+<p align="center">
+  <img src="docs/tz-gif.gif" alt="Threat.Zone MCP server walkthrough — submitting a sample, reading the verdict, and driving the live sandbox VM" />
+</p>
+
+Official [Threat.Zone](https://threat.zone) Model Context Protocol server. Wraps the Threat.Zone malware-analysis platform — submission, reporting, and IOCs — and adds VNC computer-use against the live sandbox VM, so an agent can drive a detonation interactively while the analysis is running.
+
+<use_case>
+Use this MCP server when an agent needs to:
+- Submit files or URLs to Threat.Zone for static, sandbox, CDR, URL, or open-in-browser analysis
+- Read submission verdicts, indicators, IoCs, network traffic, MITRE ATT&CK mappings, dropped artifacts, YARA hits, or signatures
+- Drive the live sandbox VM (screenshot, mouse, keyboard, clipboard, file transfer) during dynamic analysis
+- Download original samples, PCAPs, generated YARA rules, HTML reports, or dropped-file artifacts
+</use_case>
+
+<important_notes>
+1. **`THREATZONE_API_TOKEN` is required** for every `tz_*` tool. Issue one from your workspace's API Keys page in the Threat.Zone UI. Set it on the server, or pass `api_token` per call.
+2. **Submit tools are gated.** They register only when `THREATZONE_ALLOW_SUBMIT=true`. Each submit consumes daily plan quota; flip this on intentionally.
+3. **Sandbox VMs are short-lived.** A run lives only for the configured `timeout` (default 120 s, max 300 s). Connect VNC and finish interaction inside that window — sessions tear down with the analysis.
+4. **Default to private submissions** when handling user-supplied samples (`private: true`), unless the user explicitly opts into public sharing.
+5. **Polling is the caller's job.** Submit tools return the UUID immediately; poll status with `tz_submission_get`. Never inline-poll inside another tool.
+6. **No tool auto-paginates.** Pass `page` (or `skip` for `tz_network_*`) to walk forward through results.
+</important_notes>
+
+---
 
 ## Features
 
-- **Multiple VNC backends** — auto-selects between RFB (None/VNC-Auth), RSA-AES, and VeNCrypt/TLS based on server security type
-- **CloudVNC URL connect** — paste a `https://app.threat.zone/cloudvnc?token=...` URL; the server probes `/api/token-info` and routes to VNC websockify or WebRTC signaling automatically
-- **Multi-session** — manage multiple concurrent VNC/RTC connections with named sessions
-- **Screenshot capture** — PNG/JPEG with optional region cropping and quality control
-- **Full input control** — keyboard (key names, keysyms, modifiers), mouse (click, move, drag with bezier curves, scroll)
-- **Clipboard access** — read/write remote clipboard (UTF-8 with Extended Clipboard support)
-- **File transfer** — upload/download files via clipboard + shell commands (Windows & Linux)
+- **48 API tools** wrapping the full [Threat.Zone Public API](https://app.threat.zone/public-api/guide) — read-only by default, write surface gated behind `THREATZONE_ALLOW_SUBMIT`
+- **16 VNC computer-use tools** — screenshot, keyboard, mouse, clipboard, file transfer, all driving the live sandbox VM during dynamic analysis
+- **Auto-routing connect** — paste any URL shape (UUID, submission page, cloudvnc, ws/wss); the server probes `/api/token-info` and picks VNC websockify or WebRTC signaling automatically
+- **Multi-backend VNC** — auto-selects RFB (None / VNC-Auth), RSA-AES (RA2/RA2ne), or VeNCrypt/TLS based on server security type
+- **Streamable HTTP transport** by default — one process serves multiple agents concurrently; flip to `stdio` for single-shot CLI debugging
+- **WebRTC backend** for Android sandbox sessions (H.264, werift)
 
-## Installation
+---
+
+## Connecting to MCP clients
+
+The server defaults to **Streamable HTTP** at `https://app.threat.zone/mcp`. Any MCP-compliant client that speaks Streamable HTTP can connect; the snippets below cover the common ones.
+
+### Claude Code (CLI)
 
 ```bash
-yarn install
-yarn build
+claude mcp add threatzone --transport http https://app.threat.zone/mcp
 ```
 
-## Usage
+Restart your Claude Code session. `/mcp` should list the server with all tools available.
 
-The server communicates over **stdio transport**. Add it to your MCP client configuration:
+### Claude Desktop
 
-### Claude Desktop / Claude Code
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows). Stdio is simplest for desktop:
 
 ```json
 {
   "mcpServers": {
-    "threatzone-mcp": {
+    "threatzone": {
       "command": "node",
-      "args": ["/path/to/threatzone-mcp-server/dist/index.js"],
+      "args": ["/absolute/path/to/threatzone-mcp-server/dist/index.js"],
       "env": {
-        "REDIS_URL": "redis://localhost:6379"
+        "MCP_TRANSPORT": "stdio",
+        "THREATZONE_API_TOKEN": "tz_..."
       }
     }
   }
 }
 ```
 
-### Running directly
+### Codex / Cursor / Cline / Windsurf / generic Streamable HTTP
 
-```bash
-# From compiled output
-node dist/index.js
+Any client that supports the Streamable HTTP MCP transport can point at the same `/mcp` URL. The exact config field name varies by client; the URL to use is:
 
-# From source (development)
-yarn start:dev
+```
+https://app.threat.zone/mcp
 ```
 
-## Configuration
+For clients that prefer stdio, run with `MCP_TRANSPORT=stdio` and let the client spawn `node dist/index.js`.
 
-| Variable | Default | Description |
-|---|---|---|
-| `VNC_CONNECT_TIMEOUT` | `10000` | Connection timeout in milliseconds |
-| `VNC_SCREENSHOT_TIMEOUT` | `5000` | Framebuffer update timeout in milliseconds |
-| `RTC_CONNECT_TIMEOUT` | `15000` | RTC signaling + first-frame timeout in milliseconds |
-| `THREATZONE_API_TOKEN` | _(required for API tools)_ | API token for the Threat.Zone Public API; per-tool `api_token` arg overrides this |
-| `THREATZONE_API_BASE_URL` | `https://app.threat.zone/public-api` | Override the API base URL (e.g. for on-prem) |
-| `THREATZONE_ALLOW_SUBMIT` | `false` | Set to `true` to enable submit tools (POST endpoints consume plan quota) |
+### Health check
 
-## Tools Reference
+```bash
+curl -s https://app.threat.zone/mcp/healthz   # → 200 OK
+```
 
-### Connection
+---
 
-| Tool | Description |
-|---|---|
-| `connect` | Connect to a Threat.Zone session by cloudvnc URL or raw websockify URL |
-| `disconnect` | Disconnect from a session |
+## Tools
 
-**`connect` parameters:**
+The server exposes two tool families: **`tz_*`** (Public API) and **unprefixed** (VNC computer-use). All tools are listed below; see the per-tool description in `tools/list` for full schemas.
 
-| Parameter | Type | Description |
-|---|---|---|
-| `url` | string | Cloudvnc URL with embedded token (e.g. `https://app.threat.zone/cloudvnc?token=UUID`). Probes `/api/token-info` to route VNC vs. WebRTC. |
-| `ws_url` | string | Raw websockify URL when you already have one (e.g. `wss://host:9191/?token=UUID`). Skips the token-info probe. |
-| `ws_cookie` | string | Cookie header for authenticated websockify connections (paired with `ws_url`) |
-| `session_id` | string | Custom session identifier |
+### VNC: connection & session control
 
-### Screen
+<use_case>
+Use these to attach to (and detach from) a live sandbox VM. The `connect` tool accepts any URL shape — submission UUID, submission page URL, cloudvnc URL, or raw ws/wss — and normalizes them all to the right transport. After a submit you have ~120–300 s before the VM tears down; spend that budget wisely.
+</use_case>
 
 | Tool | Description |
 |---|---|
-| `screenshot` | Capture screen as PNG or JPEG, with optional region cropping and quality setting |
-| `get_screen_size` | Get the current screen dimensions (width x height) |
-| `wait_for_screen_change` | Wait until screen content changes or timeout (useful for waiting on UI updates) |
+| `connect` | Connect by submission UUID, submission page URL, cloudvnc URL, or raw ws/wss URL |
+| `disconnect` | Disconnect a session |
 
-### Keyboard
-
-| Tool | Description |
-|---|---|
-| `send_key` | Send a key press/release. Supports key names (`Return`, `F1`, `a`), hex keysyms (`0xff0d`), and modifiers (`ctrl`, `alt`, `shift`, `super`, `meta`) |
-| `type_text` | Type a string character by character with configurable delay between keystrokes |
-
-### Mouse
+### VNC: screen
 
 | Tool | Description |
 |---|---|
-| `mouse_click` | Click at coordinates. Supports left/middle/right button and single/double click |
-| `mouse_move` | Move cursor to coordinates |
-| `mouse_drag` | Drag between two points with optional bezier curve control points |
-| `scroll` | Scroll wheel at coordinates in any direction (up/down/left/right) |
+| `screenshot` | PNG/JPEG capture, optional region cropping and JPEG quality |
+| `get_screen_size` | Current screen dimensions |
+| `wait_for_screen_change` | Block until screen content changes or timeout — useful for waiting on UI updates |
 
-### Clipboard
+### VNC: keyboard & mouse
+
+<important_notes>
+- `send_key` accepts key names (`Return`, `F1`, `a`), hex keysyms (`0xff0d`), and modifiers (`ctrl`, `alt`, `shift`, `super`, `meta`). On macOS sandbox VMs, **Cmd is `super`** — `meta` aliases to it.
+- `type_text` brackets shifted ASCII chars (`[A-Z!$%^&*()_+{}:<>?]`) with `Shift_L`. Five chars (`~ | " @ #`) are not bracketed because they sit on different physical keys between US and UK ANSI layouts; for those, prefer `clipboard_write` + paste.
+- `mouse_drag` supports bezier control points for curved paths.
+</important_notes>
+
+| Tool | Description |
+|---|---|
+| `send_key` | Send one key with optional modifiers |
+| `type_text` | Type a string character by character |
+| `mouse_click` | Single or double click, left/middle/right |
+| `mouse_move` | Move cursor without clicking |
+| `mouse_drag` | Drag from start to end with optional bezier curve |
+| `scroll` | Wheel scroll up/down/left/right at coordinates |
+
+### VNC: clipboard & file transfer
 
 | Tool | Description |
 |---|---|
 | `clipboard_write` | Send text to remote clipboard (UTF-8 with Extended Clipboard, Latin-1 fallback) |
-| `clipboard_read` | Read the last clipboard text received from the remote machine |
+| `clipboard_read` | Read the last clipboard text received from the remote |
+| `file_upload` | Upload a base64 file to the remote (Windows PowerShell or Linux bash + xclip) |
+| `file_download` | Download a remote file as base64 (Windows or Linux) |
 
-### File Transfer
-
-| Tool | Description |
-|---|---|
-| `file_upload` | Upload a base64-encoded file to the remote machine via clipboard + shell commands |
-| `file_download` | Download a file from the remote machine as base64 via clipboard + shell commands |
-
-Both file transfer tools support Windows (PowerShell) and Linux (bash + xclip) via the `os` parameter.
-
-## API Tools
-
-The server wraps the full [Threat.Zone Public API](https://app.threat.zone/public-api/guide) (v3.2.0, 48 endpoints). Set `THREATZONE_API_TOKEN` and optionally `THREATZONE_API_BASE_URL` to use these tools. Every tool also accepts an optional `api_token` argument to override the env var on a per-call basis.
-
-> **Read-only by default.** Submit tools (POST endpoints) are only registered when `THREATZONE_ALLOW_SUBMIT=true`. Each submit call consumes daily plan quota — set this intentionally.
-
-### Account & Config
+### VNC: Android-only
 
 | Tool | Description |
 |---|---|
-| `tz_me` | Get account info, workspace, plan limits, and enabled modules |
+| `device_button` | Press a physical Android button (`back`, `home`, `power`) — RTC sessions only |
+
+---
+
+### API: account & config
+
+<use_case>
+Call these to discover what the workspace can do *before* picking a sandbox environment, network config, or metafield set. `tz_me` exposes plan quota and enabled modules; `tz_config_environments` lists the OS keys you can pass to `tz_submit_sandbox`.
+</use_case>
+
+| Tool | Description |
+|---|---|
+| `tz_me` | Account, workspace, plan limits, enabled modules |
+| `tz_config_environments` | Available sandbox OS environments (Windows / Linux / macOS / Android) |
 | `tz_config_metafields` | All metafield options across all submission types |
 | `tz_config_metafields_sandbox` | Sandbox-specific metafield options |
 | `tz_config_metafields_static` | Static analysis metafield options |
 | `tz_config_metafields_cdr` | CDR metafield options |
 | `tz_config_metafields_url` | URL analysis metafield options |
 | `tz_config_metafields_open_in_browser` | Open-in-browser metafield options |
-| `tz_config_environments` | Available sandbox OS environments |
-| `tz_network_configs_list` | Workspace network configurations (proxy/VPN profiles) |
+| `tz_network_configs_list` | Workspace network configs (proxy/VPN profiles for `configurations.networkConfig`) |
 
-### Submission Browse
+### API: submission browse
 
-| Tool | Description |
-|---|---|
-| `tz_submissions_list` | Paginated list with filters (level, type, sha256, filename, tags, dates) — uses `page`/`limit` |
-| `tz_submission_get` | Get a single submission by UUID |
-| `tz_submission_search_sha256` | Find submissions by exact SHA256 hash (returns flat array, no pagination) |
-
-### Analysis Reports
+<use_case>
+Use `tz_submissions_list` to scan a workspace's recent submissions with filters (verdict level, type, date range, tags). Use `tz_submission_get` once you have a UUID, and `tz_submission_search_sha256` when the user gives you a hash and you need to know whether it's been seen before.
+</use_case>
 
 | Tool | Description |
 |---|---|
-| `tz_submission_summary` | High-level verdict rollup across all analysis modules |
+| `tz_submissions_list` | Paginated list with filters (level, type, sha256, filename, tags, dates). Uses `page`/`limit`. |
+| `tz_submission_get` | Get a single submission by UUID — verdict, hashes, per-module status |
+| `tz_submission_search_sha256` | Find submissions by exact SHA256 (across your workspace + public). Flat array, no pagination. |
+
+### API: analysis reports
+
+<use_case>
+Once you have a UUID, `tz_submission_summary` gives the rollup. Drill in with `tz_submission_indicators` (heuristic signals), `tz_submission_iocs` (atomic IoCs), `tz_submission_artifacts` (dropped files / memory dumps / PCAP refs), `tz_submission_yara_rules` (YARA hits), `tz_submission_mitre` (ATT&CK mappings), `tz_submission_extracted_configs` (parsed C2/family config).
+</use_case>
+
+| Tool | Description |
+|---|---|
+| `tz_submission_summary` | High-level verdict rollup across all modules |
 | `tz_submission_indicators` | Paginated behavioural indicators (filterable by level, category, PID, ATT&CK code) |
 | `tz_submission_iocs` | Paginated IoCs (domains, IPs, URLs, hashes, registry keys, file paths) |
 | `tz_submission_yara_rules` | Paginated YARA rule hits |
 | `tz_submission_artifacts` | Full artifact list (no pagination) |
 | `tz_submission_mitre` | MITRE ATT&CK technique mappings |
 | `tz_submission_extracted_configs` | Extracted malware configuration data |
-| `tz_submission_eml_analysis` | EML email analysis (email submissions only) |
+| `tz_submission_eml_analysis` | EML/MSG email analysis (email submissions only) |
 
-### Dynamic Analysis
+### API: dynamic analysis
 
 | Tool | Description |
 |---|---|
@@ -170,131 +200,147 @@ The server wraps the full [Threat.Zone Public API](https://app.threat.zone/publi
 | `tz_submission_behaviours` | Paginated behaviour events (file/registry/network/process/mutex) |
 | `tz_submission_syscalls` | Paginated syscall trace (default `limit=500`) |
 
-### Network Analysis
+### API: network sub-reports
 
-All paginated network sub-reports use `limit`/`skip` offset pagination — NOT `page`/`limit`.
+<important_notes>
+Network sub-reports use **`limit`/`skip`** offset pagination — *not* `page`/`limit`. Pass `skip: N` to advance. Mixing the two pagination styles is the most common integration bug.
+</important_notes>
 
 | Tool | Description |
 |---|---|
-| `tz_network_summary` | Network activity summary (per-protocol counts) |
+| `tz_network_summary` | Per-protocol counts and threat rollup |
 | `tz_network_dns` | DNS query/response records |
 | `tz_network_http` | HTTP request/response records |
 | `tz_network_tcp` | TCP connection records |
 | `tz_network_udp` | UDP connection records |
 | `tz_network_threats` | Suricata-style network threat detections |
 
-### Specialised Reports
+### API: specialised reports
 
 | Tool | Description |
 |---|---|
-| `tz_submission_static_scan` | Static analysis scan results per artifact |
-| `tz_submission_cdr` | CDR analysis metadata (use `tz_download_cdr` for the sanitized file) |
-| `tz_submission_signature_check` | Code-signing signature verification |
+| `tz_submission_static_scan` | Static analysis scan results per artifact (PE info, strings, sections, imports/exports) |
+| `tz_submission_signature_check` | Code-signing signature verification per artifact |
+| `tz_submission_cdr` | CDR analysis metadata (use `tz_download_cdr` for the sanitized file itself) |
 | `tz_submission_url_analysis` | Full URL analysis report (URL submissions only) |
-| `tz_submission_media_list` | List media files captured during dynamic analysis |
+| `tz_submission_media_list` | List media files (screenshots, video) captured during dynamic analysis |
 
-### Downloads
+### API: downloads
 
-Binary responses are returned as base64 (max 25 MB inline). Use `save_to: "/absolute/path"` to write larger files directly to disk; the response then carries only `{ saved, path, size, mimetype }`.
-
-| Tool | Description |
-|---|---|
-| `tz_download_sample` | Download original sample as password-protected ZIP (password: `infected`) |
-| `tz_download_artifact` | Download a specific artifact by ID (from `tz_submission_artifacts`) |
-| `tz_download_pcap` | Download network capture (PCAP) |
-| `tz_download_yara_rule` | Download generated YARA rule file |
-| `tz_download_html_report` | Download full HTML analysis report |
-| `tz_download_cdr` | Download CDR-sanitized output file |
-| `tz_download_screenshot` | Download URL analysis screenshot (PNG) |
-| `tz_download_media` | Download a media file from dynamic analysis by file ID |
-
-### Submit (gated — requires `THREATZONE_ALLOW_SUBMIT=true`)
+<important_notes>
+Binary downloads return base64 inline up to **25 MB**. For larger payloads (PCAPs, HTML reports), pass `save_to: "/absolute/path"` — the response then carries `{ saved, path, size, mimetype }` only, keeping the JSON-RPC frame small. Original samples come down as a password-protected ZIP; the password is `infected` (industry standard for malware sandboxing).
+</important_notes>
 
 | Tool | Description |
 |---|---|
-| `tz_submit_sandbox` | Submit a file for full sandbox (static + dynamic) analysis |
-| `tz_submit_static` | Submit a file for static analysis only |
-| `tz_submit_cdr` | Submit a file for CDR (Content Disarm & Reconstruction) |
-| `tz_submit_url` | Submit a URL for URL analysis |
-| `tz_submit_open_in_browser` | Submit a URL to open in a sandboxed browser |
+| `tz_download_sample` | Original sample as password-protected ZIP (password: `infected`) |
+| `tz_download_artifact` | Specific artifact by ID (get IDs from `tz_submission_artifacts`) |
+| `tz_download_pcap` | Network capture (PCAP) |
+| `tz_download_yara_rule` | Generated YARA rule file |
+| `tz_download_html_report` | Full HTML analysis report |
+| `tz_download_cdr` | CDR-sanitized output file |
+| `tz_download_screenshot` | URL-analysis screenshot (PNG; URL submissions only) |
+| `tz_download_media` | Media file from dynamic analysis by file ID (get from `tz_submission_media_list`) |
 
-## Connection Methods
+### API: submit (gated)
 
-The single `url` argument accepts every shape below — the server normalizes each to a canonical websockify URL (`wss://<host>/cloudvnc?token=<UUID>`) and connects.
+<use_case>
+Use these to create new analyses. `tz_submit_sandbox` is the heaviest (full static + dynamic, consumes one daily slot); `tz_submit_static` is fast and skips the VM; `tz_submit_cdr` produces a sanitized version of an Office/PDF document; `tz_submit_url` scrapes and screenshots a URL; `tz_submit_open_in_browser` opens the URL inside a sandboxed browser session you can drive over VNC.
+</use_case>
 
-### Submission UUID
+<important_notes>
+1. **Only registered when `THREATZONE_ALLOW_SUBMIT=true`.** Strict equality — `1`, `TRUE`, `yes` will not enable.
+2. **Pass `private: true`** unless the user has explicitly authorised public sharing.
+3. **Submit tools return the UUID and exit.** Poll status with `tz_submission_get` — do not block.
+4. **`file_base64` is the entire file** as a single base64 string. For archive submissions, pass `entrypoint` to point at the file inside.
+5. **`tz_submit_sandbox` accepts `metafields`** to override defaults (e.g. `{"timeout": 300}` for the maximum 5-minute window). Discover available keys with `tz_config_metafields_sandbox`.
+</important_notes>
 
-Paste just the submission UUID. Defaults to `app.threat.zone`:
+| Tool | Description |
+|---|---|
+| `tz_submit_sandbox` | Full sandbox analysis (static + dynamic). Returns UUID; poll with `tz_submission_get`. |
+| `tz_submit_static` | Static-only analysis (faster, no VM) |
+| `tz_submit_cdr` | Content Disarm & Reconstruction — produces sanitized output |
+| `tz_submit_url` | URL analysis (crawler + cert + redirect chain + threat lists) |
+| `tz_submit_open_in_browser` | Open URL inside a sandboxed browser session |
+
+---
+
+## Connection URL shapes
+
+The single `url` argument to `connect` accepts every shape below; the server normalizes each to a canonical websockify URL (`wss://<host>/cloudvnc?token=<UUID>`) and connects.
+
+### Submission UUID (defaults to `app.threat.zone`)
 
 ```
 connect(url: "9a6f8a57-b9d8-4372-b600-f4d196f5da43")
 # → wss://app.threat.zone/cloudvnc?token=9a6f8a57-b9d8-4372-b600-f4d196f5da43
 ```
 
-### Submission page URL
-
-Paste the URL from your browser address bar. Trailing path (e.g. `/dynamic-scan-report`) is ignored:
+### Submission page URL (trailing path stripped)
 
 ```
-connect(url: "https://app.threat.zone/submission/9a6f8a57-b9d8-4372-b600-f4d196f5da43/dynamic-scan-report")
-# → wss://app.threat.zone/cloudvnc?token=9a6f8a57-b9d8-4372-b600-f4d196f5da43
+connect(url: "https://app.threat.zone/submission/9a6f8a57-.../dynamic-scan-report")
+# → wss://app.threat.zone/cloudvnc?token=9a6f8a57-...
 ```
 
-### CloudVNC URL
-
-Probes `/api/token-info` to route VNC tokens through websockify and WebRTC tokens through `/webrtc-signal`:
+### CloudVNC URL (probes `/api/token-info` to route VNC vs WebRTC)
 
 ```
 connect(url: "https://app.threat.zone/cloudvnc?token=UUID")
 ```
 
-### ws:// or wss:// URL
-
-`ws://` is auto-upgraded to `wss://`; `wss://` is passed through verbatim:
+### ws:// or wss:// URL (`ws://` is auto-upgraded)
 
 ```
 connect(url: "ws://app.threat.zone/cloudvnc?token=UUID")
 # → wss://app.threat.zone/cloudvnc?token=UUID
 ```
 
-### Raw websockify URL (legacy `ws_url` arg)
-
-When you need to attach a `Cookie` header for an authenticated websockify connection:
+### Raw websockify URL with cookie (legacy `ws_url` arg)
 
 ```
 connect(ws_url: "wss://app.threat.zone/?token=UUID", ws_cookie: "sessionid=...")
 ```
 
+---
+
 ## Architecture
 
 ```
 src/
-├── index.ts              # Orchestrator: loads .env, picks transport (HTTP/stdio), wires McpServer
+├── index.ts              # Orchestrator: picks transport, wires registerVncTools + registerApiTools
 ├── shared/               # RemoteSession interface + McpToolError base
-├── rtc/                  # WebRTC client for Android device gateways (werift, H.264)
-└── vnc/
-    ├── register.ts       # registerVncTools(server) — all 16 tool registrations
-    ├── errors.ts         # VNC-specific error classes
-    ├── tools/            # One handler file per MCP tool
-    └── protocol/         # VNC protocol layer (rfb2, RSA-AES, VeNCrypt backends)
+├── api/                  # Public API tools (48: 43 read-only + 5 gated submit)
+├── vnc/                  # VNC computer-use (16 tools, auto-detected backend)
+│   └── protocol/         # rfb2, RSA-AES, VeNCrypt backends
+└── rtc/                  # WebRTC client for Android device gateways (werift, H.264)
 ```
 
-The server auto-detects the appropriate VNC backend by probing the remote server's supported security types:
+The VNC client auto-detects the right backend by probing the server's supported security types:
 
-- **RFB backend** — None (type 1) and VNC-Auth (type 2) via the `rfb2` library
-- **RSA-AES client** — RA2/RA2ne encryption (types 5, 6, 13, 129, 133)
-- **VeNCrypt client** — TLS-wrapped authentication (type 19)
+- **RFB** — None (1) and VNC-Auth (2) via `rfb2`
+- **RSA-AES** — RA2 / RA2ne (5, 6, 13, 129, 133)
+- **VeNCrypt** — TLS-wrapped authentication (19)
+
+For the deeper architectural spec (session model, landmines, transport quirks), read `CLAUDE.md`.
+
+---
 
 ## Development
 
 | Command | Description |
 |---|---|
-| `yarn build` | Compile TypeScript to `dist/` |
-| `yarn start` | Run compiled server |
-| `yarn start:dev` | Run from source via ts-node (manual restart required) |
-| `yarn run check` | Lint and format check with Biome |
-| `yarn run check:write` | Lint and auto-fix with Biome |
-| `yarn test` | Run tests with Jest |
+| `yarn run build` | Compile TypeScript to `dist/` |
+| `yarn run start` | Run compiled server |
+| `yarn run start:dev` | Run from source via ts-node (no watch — restart manually) |
+| `yarn run check` | Lint and format check (Biome) |
+| `yarn run check:write` | Lint and auto-fix |
+| `yarn test` | Jest (no tests yet — passes vacuously) |
+
+See `CONTRIBUTING.md` for the full contributor workflow.
+
+---
 
 ## License
 
