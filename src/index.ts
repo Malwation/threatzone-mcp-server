@@ -5,12 +5,14 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import express from 'express';
+import { getApiBaseUrl, logEffectiveConfig } from './api/config.js';
 import { registerApiTools } from './api/register.js';
 import { registerVncTools } from './vnc/register.js';
 
 const transportMode = (process.env.MCP_TRANSPORT ?? 'http').toLowerCase();
 
 async function startStdio(): Promise<void> {
+	logEffectiveConfig();
 	const server = new McpServer({ name: 'threatzone-mcp', version: '1.0.0' });
 	registerVncTools(server);
 	registerApiTools(server);
@@ -19,6 +21,8 @@ async function startStdio(): Promise<void> {
 }
 
 async function startHttp(): Promise<void> {
+	logEffectiveConfig();
+
 	const port = Number(process.env.MCP_HTTP_PORT ?? 7860);
 	const host = process.env.MCP_HTTP_HOST ?? '127.0.0.1';
 
@@ -28,7 +32,7 @@ async function startHttp(): Promise<void> {
 	const transports = new Map<string, StreamableHTTPServerTransport>();
 
 	app.get('/healthz', (_req, res) => {
-		res.status(200).send('ok');
+		res.status(200).json({ status: 'ok', apiBase: getApiBaseUrl() });
 	});
 
 	app.all('/mcp', async (req, res) => {
