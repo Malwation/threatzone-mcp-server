@@ -64,6 +64,21 @@ jobs:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
+      - name: Sync package.json version with release tag
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          if [ -z "$VERSION" ]; then
+            echo "::error::Empty release tag — refusing to set package.json version"
+            exit 1
+          fi
+          echo "Syncing package.json version to $VERSION"
+          jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp
+          mv package.json.tmp package.json
+          grep '"version"' package.json
+
       - name: Compute image tags
         id: meta
         uses: docker/metadata-action@v5

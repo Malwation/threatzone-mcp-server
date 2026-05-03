@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -9,11 +11,16 @@ import { getApiBaseUrl, logEffectiveConfig } from './api/config.js';
 import { registerApiTools } from './api/register.js';
 import { registerVncTools } from './vnc/register.js';
 
+const PACKAGE_JSON_PATH = join(__dirname, '..', 'package.json');
+const { version: SERVER_VERSION } = JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf-8')) as {
+	version: string;
+};
+
 const transportMode = (process.env.MCP_TRANSPORT ?? 'http').toLowerCase();
 
 async function startStdio(): Promise<void> {
 	logEffectiveConfig();
-	const server = new McpServer({ name: 'threatzone-mcp', version: '1.0.0' });
+	const server = new McpServer({ name: 'threatzone-mcp', version: SERVER_VERSION });
 	registerVncTools(server);
 	registerApiTools(server);
 	const transport = new StdioServerTransport();
@@ -51,7 +58,7 @@ async function startHttp(): Promise<void> {
 			transport.onclose = () => {
 				if (transport?.sessionId) transports.delete(transport.sessionId);
 			};
-			const server = new McpServer({ name: 'threatzone-mcp', version: '1.0.0' });
+			const server = new McpServer({ name: 'threatzone-mcp', version: SERVER_VERSION });
 			registerVncTools(server);
 			registerApiTools(server);
 			await server.connect(transport);
