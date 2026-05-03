@@ -12,9 +12,16 @@ import { registerApiTools } from './api/register.js';
 import { registerVncTools } from './vnc/register.js';
 
 const PACKAGE_JSON_PATH = join(__dirname, '..', 'package.json');
-const { version: SERVER_VERSION } = JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf-8')) as {
-	version: string;
-};
+const parsedPackageJson: unknown = JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf-8'));
+if (
+	typeof parsedPackageJson !== 'object' ||
+	parsedPackageJson === null ||
+	!('version' in parsedPackageJson) ||
+	typeof (parsedPackageJson as { version: unknown }).version !== 'string'
+) {
+	throw new Error(`Invalid package.json at ${PACKAGE_JSON_PATH}: missing string "version"`);
+}
+const SERVER_VERSION = (parsedPackageJson as { version: string }).version;
 
 const transportMode = (process.env.MCP_TRANSPORT ?? 'http').toLowerCase();
 
