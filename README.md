@@ -310,7 +310,7 @@ connect(ws_url: "wss://app.threat.zone/?token=UUID", ws_cookie: "sessionid=...")
 src/
 ├── index.ts              # Orchestrator: picks transport, wires registerVncTools + registerApiTools
 ├── shared/               # RemoteSession interface + McpToolError base
-├── api/                  # Public API tools (48: 43 read-only + 5 gated submit)
+├── api/                  # Public API tools (48: 43 read-only + 5 submit)
 ├── vnc/                  # VNC computer-use (16 tools, auto-detected backend)
 │   └── protocol/         # rfb2, RSA-AES, VeNCrypt backends
 └── rtc/                  # WebRTC client for Android device gateways (werift, H.264)
