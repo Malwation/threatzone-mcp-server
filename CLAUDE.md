@@ -86,4 +86,4 @@ Loaded from `.env` via `dotenv/config` at startup. See `.env.example` for the ca
 | `VNC_SCREENSHOT_TIMEOUT` | `5000` ms | Framebuffer update timeout |
 | `RTC_CONNECT_TIMEOUT` | `15000` ms | RTC signaling + first-frame timeout |
 | `THREATZONE_API_TOKEN` | — | API token for Public API (required when any API tool is invoked). Per-tool `api_token` arg overrides. |
-| `THREATZONE_API_BASE_URL` | `https://app.threat.zone/public-api` | API base URL. In Kubernetes, derived automatically from `global.config.accessUrl` by `k8s/helm-charts/threatzone-bundle/templates/platform/deployment.yaml` (sentinel branch keyed off the env var name). For local dev, set in `.env`. |
+| `THREATZONE_API_BASE_URL` | `https://app.threat.zone/public-api` | API base URL. |
