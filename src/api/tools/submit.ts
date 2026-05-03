@@ -6,7 +6,6 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { apiRequest } from '../client.js';
-import { isSubmitAllowed } from '../config.js';
 import { apiErrorResult, BadRequestError } from '../errors.js';
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MiB
@@ -87,12 +86,6 @@ const fileSourceSchema = {
 };
 
 export function registerSubmitTools(server: McpServer): void {
-	if (!isSubmitAllowed()) {
-		console.error('[api] submit tools disabled (THREATZONE_ALLOW_SUBMIT != "true")');
-		return;
-	}
-	console.error('[api] submit tools ENABLED — write surface active');
-
 	// --- tz_submit_sandbox ---
 	server.tool(
 		'tz_submit_sandbox',
