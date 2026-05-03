@@ -56,10 +56,10 @@ WebRTC client for driving Android device gateways through the novnc `/webrtc-sig
 
 ### API domain (`src/api/`)
 
-- **`src/api/register.ts`** — `registerApiTools(server)` wires all 11 read-only tool groups (account, config, submission browse/analysis/threat/dynamic/scan/network/url, downloads). Submit tools register conditionally via `isSubmitAllowed()` from `src/api/config.ts` — gate is `THREATZONE_ALLOW_SUBMIT === 'true'` (strict equality).
+- **`src/api/register.ts`** — `registerApiTools(server)` wires all read-only tool groups (account, config, submission browse/analysis/threat/dynamic/scan/network/url, downloads) plus the submit tools (POST endpoints; consume plan quota).
 - **`src/api/client.ts`** — `apiRequest(opts)` typed fetch wrapper. Overloaded: `binary: true` returns `BinaryResponse` (`{ buffer, contentType, contentDisposition }`), otherwise returns parsed JSON. Status→error class mapping for 400/401/403/404/409/422/429/5xx. `body instanceof FormData` passes through verbatim (no JSON-stringify, no manual `Content-Type`). Token resolved via `getApiToken(opts.apiToken)` — per-call arg overrides env var.
 - **`src/api/errors.ts`** — `ApiError extends McpToolError` plus 8 subclasses keyed off the canonical error `code` enum (UNAUTHORIZED, SUBMISSION_NOT_FOUND, RATE_LIMIT_EXCEEDED, etc.). `apiErrorResult(err)` formats CallToolResult with `Error [<code>]: <message>` and `isError: true`.
-- **`src/api/config.ts`** — env helpers: `getApiBaseUrl()` (default `https://app.threat.zone/public-api`, strips trailing slash), `getApiToken(override?)`, `isSubmitAllowed()` (strict `=== 'true'`).
+- **`src/api/config.ts`** — env helpers: `getApiBaseUrl()` (default `https://app.threat.zone/public-api`, strips trailing slash), `getApiToken(override?)`.
 - **`src/api/tools/`** — one file per logical endpoint group: `account.ts`, `config.ts`, `submission-browse.ts`, `submission-analysis.ts`, `submission-threat.ts`, `submission-dynamic.ts`, `submission-scan.ts`, `submission-network.ts`, `submission-url.ts`, `downloads.ts`, `submit.ts`. All tool names are `tz_*` prefixed (collision-free with VNC/RTC names).
 
 ## Landmines
@@ -86,5 +86,4 @@ Loaded from `.env` via `dotenv/config` at startup. See `.env.example` for the ca
 | `VNC_SCREENSHOT_TIMEOUT` | `5000` ms | Framebuffer update timeout |
 | `RTC_CONNECT_TIMEOUT` | `15000` ms | RTC signaling + first-frame timeout |
 | `THREATZONE_API_TOKEN` | — | API token for Public API (required when any API tool is invoked). Per-tool `api_token` arg overrides. |
-| `THREATZONE_API_BASE_URL` | `https://app.threat.zone/public-api` | API base URL. In Kubernetes, derived automatically from `global.config.accessUrl` by `k8s/helm-charts/threatzone-bundle/templates/platform/deployment.yaml` (sentinel branch keyed off the env var name). For local dev, set in `.env`. |
-| `THREATZONE_ALLOW_SUBMIT` | `false` | Set to literal `'true'` to register the 5 submit tools. POST endpoints consume plan quota. |
+| `THREATZONE_API_BASE_URL` | `https://app.threat.zone/public-api` | API base URL (override for on-prem) |

@@ -18,7 +18,7 @@ Use this MCP server when an agent needs to:
 
 <important_notes>
 1. **`THREATZONE_API_TOKEN` is required** for every `tz_*` tool. Issue one from your workspace's API Keys page in the Threat.Zone UI. Set it on the server, or pass `api_token` per call.
-2. **Submit tools are gated.** They register only when `THREATZONE_ALLOW_SUBMIT=true`. Each submit consumes daily plan quota; flip this on intentionally.
+2. **Submit tools consume plan quota.** Each `tz_submit_*` call counts against your workspace's daily submission quota — call them intentionally.
 3. **Sandbox VMs are short-lived.** A run lives only for the configured `timeout` (default 120 s, max 300 s). Connect VNC and finish interaction inside that window — sessions tear down with the analysis.
 4. **Default to private submissions** when handling user-supplied samples (`private: true`), unless the user explicitly opts into public sharing.
 5. **Polling is the caller's job.** Submit tools return the UUID immediately; poll status with `tz_submission_get`. Never inline-poll inside another tool.
@@ -29,7 +29,7 @@ Use this MCP server when an agent needs to:
 
 ## Features
 
-- **48 API tools** wrapping the full [Threat.Zone Public API](https://app.threat.zone/public-api/guide) — read-only by default, write surface gated behind `THREATZONE_ALLOW_SUBMIT`
+- **48 API tools** wrapping the full [Threat.Zone Public API](https://app.threat.zone/public-api/guide) — full read + write surface
 - **16 VNC computer-use tools** — screenshot, keyboard, mouse, clipboard, file transfer, all driving the live sandbox VM during dynamic analysis
 - **Auto-routing connect** — paste any URL shape (UUID, submission page, cloudvnc, ws/wss); the server probes `/api/token-info` and picks VNC websockify or WebRTC signaling automatically
 - **Multi-backend VNC** — auto-selects RFB (None / VNC-Auth), RSA-AES (RA2/RA2ne), or VeNCrypt/TLS based on server security type
@@ -242,18 +242,17 @@ Binary downloads return base64 inline up to **25 MB**. For larger payloads (PCAP
 | `tz_download_screenshot` | URL-analysis screenshot (PNG; URL submissions only) |
 | `tz_download_media` | Media file from dynamic analysis by file ID (get from `tz_submission_media_list`) |
 
-### API: submit (gated)
+### API: submit
 
 <use_case>
 Use these to create new analyses. `tz_submit_sandbox` is the heaviest (full static + dynamic, consumes one daily slot); `tz_submit_static` is fast and skips the VM; `tz_submit_cdr` produces a sanitized version of an Office/PDF document; `tz_submit_url` scrapes and screenshots a URL; `tz_submit_open_in_browser` opens the URL inside a sandboxed browser session you can drive over VNC.
 </use_case>
 
 <important_notes>
-1. **Only registered when `THREATZONE_ALLOW_SUBMIT=true`.** Strict equality — `1`, `TRUE`, `yes` will not enable.
-2. **Pass `private: true`** unless the user has explicitly authorised public sharing.
-3. **Submit tools return the UUID and exit.** Poll status with `tz_submission_get` — do not block.
-4. **`file_base64` is the entire file** as a single base64 string. For archive submissions, pass `entrypoint` to point at the file inside.
-5. **`tz_submit_sandbox` accepts `metafields`** to override defaults (e.g. `{"timeout": 300}` for the maximum 5-minute window). Discover available keys with `tz_config_metafields_sandbox`.
+1. **Pass `private: true`** unless the user has explicitly authorised public sharing.
+2. **Submit tools return the UUID and exit.** Poll status with `tz_submission_get` — do not block.
+3. **`file_base64` is the entire file** as a single base64 string. For archive submissions, pass `entrypoint` to point at the file inside.
+4. **`tz_submit_sandbox` accepts `metafields`** to override defaults (e.g. `{"timeout": 300}` for the maximum 5-minute window). Discover available keys with `tz_config_metafields_sandbox`.
 </important_notes>
 
 | Tool | Description |

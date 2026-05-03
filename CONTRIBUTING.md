@@ -177,18 +177,7 @@ The helper enforces the 25 MB inline cap, handles the `save_to` disk-write branc
 
 ### Adding a write-surface tool (POST)
 
-Submit tools live in `src/api/tools/submit.ts` and are conditionally registered. The first executable line of `registerSubmitTools` is the gate:
-
-```ts
-export function registerSubmitTools(server: McpServer): void {
-  if (!isSubmitAllowed()) {
-    console.error('[api] submit tools disabled (THREATZONE_ALLOW_SUBMIT != "true")');
-    return;
-  }
-  console.error('[api] submit tools ENABLED — write surface active');
-  // server.tool(...) calls go here
-}
-```
+Submit tools live in `src/api/tools/submit.ts`. Add new `server.tool(...)` calls inside `registerSubmitTools`.
 
 For multipart bodies build a `FormData`, append `file` first, then string fields. Don't set `Content-Type` manually — `apiRequest` detects `body instanceof FormData` and lets `fetch` set the multipart boundary. JSON bodies: pass a plain object; `apiRequest` JSON-stringifies and sets `Content-Type: application/json`.
 
@@ -222,7 +211,7 @@ VNC tool names are **unprefixed** (legacy). The `tz_` prefix is reserved for the
 1. Add a getter to `src/api/config.ts` (or the appropriate domain config). Never read `process.env.X` directly from a tool handler.
 2. Add a row to the env-var table in `README.md`.
 3. Add the var to `.env.example` with a comment explaining when to set it.
-4. If the var gates a feature (like `THREATZONE_ALLOW_SUBMIT`), use **strict equality** (`=== 'true'`) — not truthy coercion.
+4. If the var gates a feature, use **strict equality** (`=== 'true'`) — not truthy coercion.
 
 ---
 
@@ -246,7 +235,7 @@ grep -rE "console\.log" src/
 
 # 5. Tool listing smoke — your new tool must appear
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' \
-  | MCP_TRANSPORT=stdio THREATZONE_ALLOW_SUBMIT=true node dist/index.js 2>/dev/null \
+  | MCP_TRANSPORT=stdio node dist/index.js 2>/dev/null \
   | grep -o '"name":"[a-z0-9_]*"' | sort -u
 
 # 6. HTTP boot smoke
