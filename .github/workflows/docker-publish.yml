@@ -18,41 +18,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get runner public IP
-        id: ip
-        run: |
-          IPV4=$(curl -fsS https://ifconfig.me/ip)
-          echo "ipv4=$IPV4" >> "$GITHUB_OUTPUT"
-          echo "Runner IP: $IPV4"
-
-      - name: Configure AWS CLI
-        run: |
-          aws configure set aws_access_key_id ${{ secrets.AWS_EC2_ACCESS_KEY_ID }}
-          aws configure set aws_secret_access_key ${{ secrets.AWS_EC2_SECRET_ACCESS_KEY }}
-          aws configure set region ${{ secrets.AWS_EC2_REGION }}
-
-      - name: Setup Hetzner CLI
-        uses: hetznercloud/setup-hcloud@v1
-
-      - name: Add IP to Hetzner firewall
-        run: |
-          hcloud firewall add-rule \
-            --direction in \
-            --protocol tcp \
-            --port 443 \
-            --source-ips ${{ steps.ip.outputs.ipv4 }}/32 \
-            ${{ secrets.HCLOUD_FIREWALL_ID }} \
-            --description "CI: threatzone-mcp-server publish"
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-
-      - name: Add IP to AWS security group
-        run: |
-          aws ec2 authorize-security-group-ingress \
-            --group-id ${{ secrets.AWS_SECURITY_GROUP_ID }} \
-            --ip-permissions \
-              IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges='[{CidrIp=${{ steps.ip.outputs.ipv4 }}/32,Description="CI: threatzone-mcp-server publish"}]' \
-              IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges='[{CidrIp=${{ steps.ip.outputs.ipv4 }}/32,Description="CI: threatzone-mcp-server publish"}]'
+      - name: Whitelist Runner IP on the Hub Firewall
+        uses: malwation/hub-ip-whitelist@v1
+        with:
+          token: ${{ secrets.HETZNER_HUB_FIREWALL_APIKEY }}
+          label: "gh:${{ github.repository }}:${{ github.run_id }}:${{ github.run_attempt }}:publish"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -60,7 +30,7 @@ jobs:
       - name: Log in to private registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ secrets.REGISTRY_URL }}
+          registry: hub.malwation.com
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
@@ -87,7 +57,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.REGISTRY_URL }}/${{ env.IMAGE_NAME }}
+          images: hub.malwation.com/${{ env.IMAGE_NAME }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -106,24 +76,3 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
 
-      - name: Remove IP from Hetzner firewall
-        if: always()
-        run: |
-          hcloud firewall delete-rule \
-            --direction in \
-            --protocol tcp \
-            --port 443 \
-            --source-ips ${{ steps.ip.outputs.ipv4 }}/32 \
-            ${{ secrets.HCLOUD_FIREWALL_ID }} \
-            --description "CI: threatzone-mcp-server publish" || true
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-
-      - name: Remove IP from AWS security group
-        if: always()
-        run: |
-          aws ec2 revoke-security-group-ingress \
-            --group-id ${{ secrets.AWS_SECURITY_GROUP_ID }} \
-            --ip-permissions \
-              IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges='[{CidrIp=${{ steps.ip.outputs.ipv4 }}/32}]' \
-              IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges='[{CidrIp=${{ steps.ip.outputs.ipv4 }}/32}]' || true
