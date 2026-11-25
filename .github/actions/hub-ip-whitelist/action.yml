@@ -1,0 +1,55 @@
+name: Registry IP whitelist
+description: >-
+  Add the runner public IPv4 to the Hetzner Cloud firewall that protects
+  the image registry, then remove it when the job ends.
+author: malwation
+
+inputs:
+  token:
+    description: Hetzner Cloud API token with write access to the project.
+    required: true
+  firewall-id:
+    description: Hetzner Cloud firewall id.
+    required: true
+  port:
+    description: TCP port to open for this runner.
+    required: false
+    default: "443"
+  operation:
+    description: "add or remove."
+    required: false
+    default: add
+  auto-remove:
+    description: Remove the rule in the post step. Set to false to keep it.
+    required: false
+    default: "true"
+  label:
+    description: >-
+      Rule description, used to find the rule again. Defaults to
+      gh:<repository>:<run_id>:<run_attempt>.
+    required: false
+    default: ""
+  ip:
+    description: Skip discovery and whitelist this IPv4 address.
+    required: false
+    default: ""
+  api-base:
+    description: Hetzner API base URL. Override only for tests.
+    required: false
+    default: https://api.hetzner.cloud/v1
+
+outputs:
+  ip:
+    description: The IPv4 address that was added or removed.
+  label:
+    description: The label that was used.
+  uuid:
+    description: The per-run id that identifies the rule.
+  description:
+    description: The rule description written to the firewall, "<uuid>#<label>".
+
+runs:
+  using: node20
+  main: index.js
+  post: index.js
+  post-if: always()
