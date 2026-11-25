@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ---------- builder ----------
-FROM node:22-slim AS builder
+FROM node:24-slim AS builder
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
     yarn install --frozen-lockfile --production
 
 # ---------- runtime ----------
-FROM node:22-slim AS runtime
+FROM node:24-slim AS runtime
 
 # ffmpeg + ffprobe are required by the RTC transport (H.264 decode + probe)
 RUN apt-get update \
