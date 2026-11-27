@@ -88,7 +88,7 @@ class FakeSessionManager {
 let sessions: FakeSessionManager;
 
 function run(args: Parameters<typeof handleConnect>[0]): Promise<CallToolResult> {
-	return handleConnect(args, sessions as unknown as SessionManager);
+	return handleConnect(args, sessions as unknown as SessionManager, { transportMode: 'stdio' });
 }
 
 function text(result: CallToolResult): string {

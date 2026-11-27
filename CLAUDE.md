@@ -19,13 +19,20 @@ The official Threat.Zone MCP (Model Context Protocol) server. Provides VNC and W
 
 ## Architecture
 
-`src/index.ts` is a thin orchestrator: loads `.env` via `dotenv/config`, then branches on `MCP_TRANSPORT`. In HTTP mode it stands up an Express app with one `/mcp` route plus `/healthz`, instantiates a fresh `McpServer` + `StreamableHTTPServerTransport` per MCP session (keyed by the `mcp-session-id` header), and binds to `MCP_HTTP_HOST:MCP_HTTP_PORT` (defaults `127.0.0.1:7860`). In stdio mode it falls back to the original single-server `StdioServerTransport` boot. The same `registerVncTools(server)` runs in both paths.
+`src/index.ts` is a thin orchestrator: loads `.env` via `dotenv/config`, then branches on `MCP_TRANSPORT`. In HTTP mode it serves the Express app from `src/http-app.ts` (`createHttpApp`): one `/mcp` route plus `/healthz`, a fresh `McpServer` + `StreamableHTTPServerTransport` per MCP session (keyed by the `mcp-session-id` header), bound to `MCP_HTTP_HOST:MCP_HTTP_PORT` (defaults `127.0.0.1:7860`). In stdio mode it falls back to the original single-server `StdioServerTransport` boot. Both paths call `registerVncTools(server, ctx, sessionManager)` and `registerApiTools(server, ctx)`. On SIGTERM/SIGINT, `index.ts` calls `sessionManager.disconnectAll()` and exits.
 
 **Transport mode and the server disk.** `index.ts` parses `MCP_TRANSPORT` once (`parseTransportMode` in `src/shared/tool-context.ts`) and passes a `ToolContext` to `registerApiTools(server, ctx)`. Tools read the mode from that context, never from `process.env`. In HTTP mode no tool reads or writes a path on the server disk: the `tz_download_*` schemas have no `save_to`, and `tz_submit_sandbox` / `tz_submit_static` / `tz_submit_cdr` have no `file_path` (only `file_base64` + `filename`). A download over 25 MB returns the Public API URL and a `curl` command with a `<YOUR_API_TOKEN>` placeholder, and the server does not read the body. stdio mode keeps `save_to` and `file_path`. VNC `file_upload` / `file_download` take base64 content and a remote VM path only, so they are the same in both modes. Keep this rule for every new tool.
 
 Each feature domain lives in its own directory under `src/` and exports a `registerXxxTools(server)` function. To add a new domain, create the directory and add one call inside `startStdio` and `startHttp` in `index.ts` (the per-session McpServer setup).
 
-**Session model.** Each HTTP MCP client gets its own transport + `McpServer`, but the module-level `SessionManager` and `TokenResolver` in `src/vnc/register.ts:23-24` are shared across all of them. Multiple clients can hold concurrent VNC/RTC sessions because they pass distinct `session_id` args to the `connect` tool — but a malicious or buggy client *could* reach another client's session by guessing/observing its `session_id`. This is the single-tenant on-prem trade-off; tighten only if you need multi-tenant isolation.
+**Session model.** `index.ts` creates one `SessionManager` per process (`SessionManager.forTransport(mode)`). Every HTTP MCP client gets its own transport + `McpServer`, but all of them share that manager. In HTTP mode:
+
+- `connect` takes only `submission_uuid` (+ `api_token`). The session ID is `sha256(<token query value of the live-view link>)` as 64 hex chars (`liveViewSessionId` in `tools/connect.ts`). The caller cannot choose it, and only a caller that gets the link from the Public API learns it. The raw token and the link query never appear in output.
+- A second `connect` for the same link returns the same ID and reuses the connected client (`connectOrReuse`, one dial even for concurrent calls). A dead entry with that ID is replaced.
+- Every session tool requires `session_id`. There is no default session, so `getSession(undefined)` throws. An unknown or ended ID returns "Session not found or ended".
+- An entry is removed when its client ends (`RemoteSession.onClose`: socket end or error) and after `SESSION_IDLE_TIMEOUT_MS` (5 minutes) with no tool call. The idle timer is `unref()`ed.
+
+stdio mode keeps `url` / `ws_url` / `ws_cookie`, a caller-chosen `session_id` and the default session, with no idle timeout. In both modes, `register()` with an existing ID disconnects the old client.
 
 ### Shared (`src/shared/`)
 
@@ -34,15 +41,15 @@ Each feature domain lives in its own directory under `src/` and exports a `regis
 
 ### VNC domain (`src/vnc/`)
 
-- **`register.ts`** — `registerVncTools(server)` registers all 16 MCP tools with their Zod schemas. Instantiates `SessionManager` and `TokenResolver`. Despite the name and directory, this is the central dispatch for *all* session-routed tools (including RTC-only `device_button`); transport routing happens inside each handler via the shared `RemoteSession`.
+- **`register.ts`** — `registerVncTools(server, ctx, sessionManager)` registers all 16 MCP tools with their Zod schemas. The schemas depend on `ctx.transportMode` (see Session model). Despite the name and directory, this is the central dispatch for *all* session-routed tools (including RTC-only `device_button`); transport routing happens inside each handler via the shared `RemoteSession`.
 - **`tools/`** — One handler file per MCP tool (connect, disconnect, screenshot, send-key, type-text, mouse-click, mouse-move, mouse-drag, scroll, get-screen-size, wait-for-screen-change, clipboard-read, clipboard-write, file-upload, file-download, device-button).
 - **`protocol/`** — VNC protocol layer:
   - Three connection backends selected by probing security types: `rfb-backend.ts` (None/VNC-Auth), `ra2ne-client.ts` (RSA-AES), `vencrypt-client.ts` (VeNCrypt/TLS). All implement `RfbBackend`.
   - `vnc-client.ts` orchestrates backend selection, manages the `Framebuffer` for screenshots.
-  - `session-manager.ts` holds multiple named sessions, tracks a default.
+  - `session-manager.ts` holds named sessions: default session (stdio only), reuse by ID, close and idle cleanup.
   - `ws-transport.ts` provides WebSocket transport for websockify proxies.
 - **`errors.ts`** — `VncError` (extends `McpToolError` from `src/shared/errors.ts`) plus domain-specific error subclasses.
-- **`tools/connect.ts`** — central dispatch. Accepted inputs: `submission_uuid` calls the Public API `GET /submissions/{uuid}/dynamic/session` (via `src/api/client.ts`, with `api_token` or `THREATZONE_API_TOKEN`) and dials the returned VNC link; `url` takes a raw `ws://`/`wss://` URL and keeps its scheme; `ws_url` (+ optional `ws_cookie`) takes a pre-built websockify URL. Bare UUIDs and submission page URLs in `url` are rejected. Output strips the URL query so the live-view token is never printed. `connect` does not open RTC sessions now: the session route returns only VNC links.
+- **`tools/connect.ts`** — central dispatch. Accepted inputs: `submission_uuid` calls the Public API `GET /submissions/{uuid}/dynamic/session` (via `src/api/client.ts`, with `api_token` or `THREATZONE_API_TOKEN`) and dials the returned VNC link. stdio mode only: `url` takes a raw `ws://`/`wss://` URL and keeps its scheme, and `ws_url` (+ optional `ws_cookie`) takes a pre-built websockify URL. Bare UUIDs and submission page URLs in `url` are rejected. Output strips the URL query so the live-view token is never printed. `connect` does not open RTC sessions now: the session route returns only VNC links.
 
 ### RTC domain (`src/rtc/`)
 

@@ -212,7 +212,7 @@ export async function handleNewTool(
 }
 ```
 
-Register in `src/vnc/register.ts` with `server.tool(name, description, zodSchema, handler)`. If the tool is RTC-only, implement on `RtcClient` only and have `VncClient` throw `UnsupportedOnTransportError`. Tool handlers consume sessions via the shared `RemoteSession` interface — don't branch on transport.
+Register in `src/vnc/register.ts` with `server.tool(name, description, zodSchema, handler)`. Use the shared `sessionId` schema for `session_id`: it is required in HTTP mode and optional in stdio mode. Never add a default-session fallback for HTTP mode, and never let the caller choose a session ID there. `connect` derives it from the live-view link. If the tool is RTC-only, implement on `RtcClient` only and have `VncClient` throw `UnsupportedOnTransportError`. Tool handlers consume sessions via the shared `RemoteSession` interface — don't branch on transport.
 
 VNC tool names are **unprefixed** (legacy). The `tz_` prefix is reserved for the API domain.
 

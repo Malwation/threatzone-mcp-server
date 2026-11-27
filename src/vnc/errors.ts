@@ -23,11 +23,12 @@ export class AuthenticationError extends VncError {
 }
 
 export class SessionNotFoundError extends VncError {
-	constructor(sessionId?: string) {
+	constructor(sessionId?: string, message?: string) {
 		super(
-			sessionId
-				? `VNC session '${sessionId}' not found`
-				: 'No active VNC session. Call "connect" first.',
+			message ??
+				(sessionId
+					? `VNC session '${sessionId}' not found`
+					: 'No active VNC session. Call "connect" first.'),
 			'SESSION_NOT_FOUND',
 		);
 		this.name = 'SessionNotFoundError';

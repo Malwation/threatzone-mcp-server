@@ -99,8 +99,19 @@ Use these to attach to (and detach from) a live sandbox VM. Pass the sandbox sub
 
 | Tool | Description |
 |---|---|
-| `connect` | Connect by `submission_uuid` (link from the Public API session route), or by a raw ws/wss URL |
+| `connect` | Connect by `submission_uuid` (link from the Public API session route). stdio mode also accepts a raw ws/wss URL |
 | `disconnect` | Disconnect a session |
+
+<important_notes>
+In HTTP mode (the default, and the hosted server), each live view is a separate session:
+
+1. `connect` takes only `submission_uuid` (and `api_token`). The result holds a `session_id`.
+2. Pass that `session_id` to every session tool (`screenshot`, `mouse_*`, `send_key`, `type_text`, `scroll`, `clipboard_*`, `file_*`, `wait_for_screen_change`, `get_screen_size`, `device_button`, `disconnect`). The argument is required. There is no default session.
+3. The server makes the `session_id` from the live-view link. You cannot choose it. A `connect` call for the same run returns the same `session_id` and uses the open connection.
+4. A session closes when the sandbox run ends, or after 5 minutes with no tool call. A tool call with an unknown or closed `session_id` returns "Session not found or ended". Call `connect` again to get a new session.
+
+In stdio mode, `session_id` is optional, tools use the last connected session by default, and `connect` also accepts the raw URL inputs below.
+</important_notes>
 
 ### VNC: screen
 
@@ -272,7 +283,7 @@ Use these to create new analyses. `tz_submit_sandbox` is the heaviest (full stat
 
 ## Connection inputs
 
-`connect` takes exactly one of the inputs below.
+`connect` takes exactly one of the inputs below. HTTP mode accepts only `submission_uuid`. The raw URL inputs (`url`, `ws_url`, `ws_cookie`) and a custom `session_id` are available in stdio mode only.
 
 ### Sandbox submission UUID (recommended)
 
@@ -286,7 +297,7 @@ The server calls `GET /submissions/{uuid}/dynamic/session` with your API token (
 - You are not the submitter or a workspace admin: no link is returned.
 - URL-analysis submissions: not supported by `connect` yet.
 
-### ws:// or wss:// URL
+### ws:// or wss:// URL (stdio mode only)
 
 ```
 connect(url: "wss://host/path?token=...")
@@ -294,7 +305,7 @@ connect(url: "wss://host/path?token=...")
 
 The scheme is kept as given. A bare UUID or a submission page URL in `url` returns an error that tells you to use `submission_uuid`.
 
-### Raw websockify URL with cookie (`ws_url` arg)
+### Raw websockify URL with cookie (`ws_url` arg, stdio mode only)
 
 ```
 connect(ws_url: "wss://host/?token=...", ws_cookie: "sessionid=...")

@@ -1,15 +1,13 @@
 import 'dotenv/config';
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import express from 'express';
-import { getApiBaseUrl, logEffectiveConfig } from './api/config.js';
+import { logEffectiveConfig } from './api/config.js';
 import { registerApiTools } from './api/register.js';
+import { createHttpApp } from './http-app.js';
 import { parseTransportMode, type ToolContext } from './shared/tool-context.js';
+import { SessionManager } from './vnc/protocol/session-manager.js';
 import { registerVncTools } from './vnc/register.js';
 
 const PACKAGE_JSON_PATH = join(__dirname, '..', 'package.json');
@@ -26,11 +24,13 @@ const SERVER_VERSION = (parsedPackageJson as { version: string }).version;
 
 const transportMode = parseTransportMode(process.env.MCP_TRANSPORT);
 const toolContext: ToolContext = { transportMode };
+// One manager per process: HTTP MCP sessions share it, and session IDs keep them apart.
+const sessionManager = SessionManager.forTransport(transportMode);
 
 async function startStdio(): Promise<void> {
 	logEffectiveConfig();
 	const server = new McpServer({ name: 'threatzone-mcp', version: SERVER_VERSION });
-	registerVncTools(server);
+	registerVncTools(server, toolContext, sessionManager);
 	registerApiTools(server, toolContext);
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
@@ -42,46 +42,7 @@ async function startHttp(): Promise<void> {
 	const port = Number(process.env.MCP_HTTP_PORT ?? 7860);
 	const host = process.env.MCP_HTTP_HOST ?? '127.0.0.1';
 
-	const app = express();
-	app.use(express.json({ limit: '50mb' }));
-
-	const transports = new Map<string, StreamableHTTPServerTransport>();
-
-	app.get('/healthz', (_req, res) => {
-		res.status(200).json({ status: 'ok', apiBase: getApiBaseUrl() });
-	});
-
-	app.all('/mcp', async (req, res) => {
-		const sid = req.headers['mcp-session-id'];
-		const sessionId = typeof sid === 'string' ? sid : undefined;
-
-		let transport = sessionId ? transports.get(sessionId) : undefined;
-
-		if (!transport && req.method === 'POST' && isInitializeRequest(req.body)) {
-			transport = new StreamableHTTPServerTransport({
-				sessionIdGenerator: () => randomUUID(),
-				onsessioninitialized: (id) => {
-					if (transport) transports.set(id, transport);
-				},
-			});
-			transport.onclose = () => {
-				if (transport?.sessionId) transports.delete(transport.sessionId);
-			};
-			const server = new McpServer({ name: 'threatzone-mcp', version: SERVER_VERSION });
-			registerVncTools(server);
-			registerApiTools(server, toolContext);
-			await server.connect(transport);
-		} else if (!transport) {
-			res.status(400).json({
-				jsonrpc: '2.0',
-				error: { code: -32000, message: 'Bad Request: no valid session ID' },
-				id: null,
-			});
-			return;
-		}
-
-		await transport.handleRequest(req, res, req.body);
-	});
+	const app = createHttpApp({ serverVersion: SERVER_VERSION, toolContext, sessionManager });
 
 	await new Promise<void>((resolve) => {
 		app.listen(port, host, () => {
@@ -98,6 +59,14 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (err) => {
 	console.error('Unhandled rejection:', err);
 });
+
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+	process.once(signal, () => {
+		console.error(`[mcp] ${signal}: closing VNC sessions`);
+		sessionManager.disconnectAll();
+		process.exit(0);
+	});
+}
 
 const main = transportMode === 'stdio' ? startStdio : startHttp;
 

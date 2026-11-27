@@ -38,6 +38,8 @@ export interface RemoteSession {
 
 	connect(): Promise<void>;
 	disconnect(): void;
+	/** Calls the listener when the remote side ends a connected session (socket end or error). */
+	onClose(listener: () => void): void;
 
 	screenshot(format?: ImageFormat, region?: Region, quality?: number): Promise<Buffer>;
 	waitForRect(timeoutMs: number): Promise<boolean>;
