@@ -15,6 +15,7 @@ const UUID_NO_ACCESS = '22222222-2222-4222-8222-222222222222';
 const UUID_UNAVAILABLE = '33333333-3333-4333-8333-333333333333';
 const UUID_URL_ANALYSIS = '44444444-4444-4444-8444-444444444444';
 const UUID_MISSING = '55555555-5555-4555-8555-555555555555';
+const UUID_ENDED = '66666666-6666-4666-8666-666666666666';
 
 interface Recorded {
 	path: string;
@@ -49,17 +50,25 @@ const api = http.createServer((req, res) => {
 				link: null,
 				expiresAt: null,
 			});
+		case UUID_ENDED:
+			// Run ended: the dynamic report is no longer IN_PROGRESS. A stale link must not be dialed.
+			return json(res, 200, {
+				state: 'unavailable',
+				vncAvailable: false,
+				link: LINK,
+				expiresAt: null,
+			});
 		case UUID_URL_ANALYSIS:
 			return json(res, 409, {
 				statusCode: 409,
 				message: 'Use the URL-analysis session route',
-				code: 'URL_ANALYSIS_SUBMISSION',
+				code: 'DYNAMIC_REPORT_UNAVAILABLE',
 			});
 		default:
 			return json(res, 404, {
 				statusCode: 404,
 				message: 'Submission not found',
-				code: 'SUBMISSION_NOT_FOUND',
+				code: 'NOT_FOUND',
 			});
 	}
 });
@@ -149,6 +158,14 @@ test('submission_uuid: unavailable returns the not-running error', async () => {
 	assert.deepEqual(sessions.dialed, []);
 });
 
+test('submission_uuid: ended run returns the not-running error', async () => {
+	const result = await run({ submission_uuid: UUID_ENDED });
+	assert.equal(result.isError, true);
+	assert.match(text(result), /not running/);
+	assert.deepEqual(sessions.dialed, []);
+	assert.ok(!text(result).includes(LIVE_TOKEN));
+});
+
 test('submission_uuid: 409 returns the URL-analysis error', async () => {
 	const result = await run({ submission_uuid: UUID_URL_ANALYSIS });
 	assert.equal(result.isError, true);
@@ -159,7 +176,8 @@ test('submission_uuid: 409 returns the URL-analysis error', async () => {
 test('submission_uuid: 404 returns not found', async () => {
 	const result = await run({ submission_uuid: UUID_MISSING });
 	assert.equal(result.isError, true);
-	assert.match(text(result), /SUBMISSION_NOT_FOUND/);
+	assert.match(text(result), /NOT_FOUND/);
+	assert.match(text(result), /Submission not found/);
 });
 
 test('url: bare UUID is rejected with a pointer to submission_uuid', async () => {
