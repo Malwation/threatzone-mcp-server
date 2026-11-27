@@ -228,7 +228,12 @@ Network sub-reports use **`limit`/`skip`** offset pagination — *not* `page`/`l
 ### API: downloads
 
 <important_notes>
-Binary downloads return base64 inline up to **25 MB**. For larger payloads (PCAPs, HTML reports), pass `save_to: "/absolute/path"` — the response then carries `{ saved, path, size, mimetype }` only, keeping the JSON-RPC frame small. Original samples come down as a password-protected ZIP; the password is `infected` (industry standard for malware sandboxing).
+Binary downloads return base64 inline up to **25 MB**. Original samples come down as a password-protected ZIP. The password is `infected` (industry standard for malware sandboxing).
+
+The arguments for a larger file depend on the transport (`MCP_TRANSPORT`):
+
+- **HTTP mode** (the default, and the hosted server at `https://app.threat.zone/mcp`): the download tools have no `save_to` argument, and the server never writes to its own disk. For a file over 25 MB, the tool does not read the file. It returns the Public API download URL (method `GET`, built from `THREATZONE_API_BASE_URL`) and a ready `curl` command. Fetch the URL with the same Threat.Zone API token that you use for this MCP server, as `Authorization: Bearer <your API token>`. The `curl` command holds a `<YOUR_API_TOKEN>` placeholder, never a real token. `tz_download_screenshot` returns the PNG as an MCP image block.
+- **stdio mode**: pass `save_to: "/absolute/path"` for a larger file. The server writes the file to that path, and the response holds only `{ saved, path, size, mimetype }`.
 </important_notes>
 
 | Tool | Description |
@@ -251,7 +256,7 @@ Use these to create new analyses. `tz_submit_sandbox` is the heaviest (full stat
 <important_notes>
 1. **Pass `private: true`** unless the user has explicitly authorised public sharing.
 2. **Submit tools return the UUID and exit.** Poll status with `tz_submission_get` — do not block.
-3. **`file_base64` is the entire file** as a single base64 string. For archive submissions, pass `entrypoint` to point at the file inside.
+3. **`file_base64` is the entire file** as a single base64 string. For archive submissions, pass `entrypoint` to point at the file inside. In HTTP mode, `file_base64` (with `filename`) is the only way to send a file. In stdio mode, you can pass `file_path` instead, and the server reads the file from its local disk.
 4. **`tz_submit_sandbox` accepts `metafields`** to override defaults (e.g. `{"timeout": 300}` for the maximum 5-minute window). Discover available keys with `tz_config_metafields_sandbox`.
 </important_notes>
 

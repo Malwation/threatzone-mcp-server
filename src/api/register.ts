@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { ToolContext } from '../shared/tool-context.js';
 import { registerAccountTools } from './tools/account.js';
 import { registerConfigTools } from './tools/config.js';
 import { registerDownloadTools } from './tools/downloads.js';
@@ -11,7 +12,7 @@ import { registerSubmissionThreatTools } from './tools/submission-threat.js';
 import { registerSubmissionUrlTools } from './tools/submission-url.js';
 import { registerSubmitTools } from './tools/submit.js';
 
-export function registerApiTools(server: McpServer): void {
+export function registerApiTools(server: McpServer, ctx: ToolContext): void {
 	registerAccountTools(server);
 	registerConfigTools(server);
 	registerSubmissionBrowseTools(server);
@@ -21,6 +22,6 @@ export function registerApiTools(server: McpServer): void {
 	registerSubmissionScanTools(server);
 	registerSubmissionNetworkTools(server);
 	registerSubmissionUrlTools(server);
-	registerDownloadTools(server);
-	registerSubmitTools(server);
+	registerDownloadTools(server, ctx);
+	registerSubmitTools(server, ctx);
 }

@@ -9,6 +9,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import express from 'express';
 import { getApiBaseUrl, logEffectiveConfig } from './api/config.js';
 import { registerApiTools } from './api/register.js';
+import { parseTransportMode, type ToolContext } from './shared/tool-context.js';
 import { registerVncTools } from './vnc/register.js';
 
 const PACKAGE_JSON_PATH = join(__dirname, '..', 'package.json');
@@ -23,13 +24,14 @@ if (
 }
 const SERVER_VERSION = (parsedPackageJson as { version: string }).version;
 
-const transportMode = (process.env.MCP_TRANSPORT ?? 'http').toLowerCase();
+const transportMode = parseTransportMode(process.env.MCP_TRANSPORT);
+const toolContext: ToolContext = { transportMode };
 
 async function startStdio(): Promise<void> {
 	logEffectiveConfig();
 	const server = new McpServer({ name: 'threatzone-mcp', version: SERVER_VERSION });
 	registerVncTools(server);
-	registerApiTools(server);
+	registerApiTools(server, toolContext);
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
 }
@@ -67,7 +69,7 @@ async function startHttp(): Promise<void> {
 			};
 			const server = new McpServer({ name: 'threatzone-mcp', version: SERVER_VERSION });
 			registerVncTools(server);
-			registerApiTools(server);
+			registerApiTools(server, toolContext);
 			await server.connect(transport);
 		} else if (!transport) {
 			res.status(400).json({

@@ -18,6 +18,12 @@ export interface ApiRequestOptions {
 	query?: Record<string, string | number | boolean | string[] | undefined>;
 	body?: unknown;
 	binary?: boolean;
+	/**
+	 * Binary requests only. When set, the body is not kept in memory if it is larger than this
+	 * many bytes: a declared `Content-Length` over the limit skips the body read, and a body that
+	 * grows past the limit while streaming is cancelled. The result is then an `OversizeBinaryResponse`.
+	 */
+	maxBytes?: number;
 	signal?: AbortSignal;
 	apiToken?: string;
 }
@@ -26,6 +32,35 @@ export interface BinaryResponse {
 	buffer: Buffer;
 	contentType: string;
 	contentDisposition: string | undefined;
+}
+
+export interface OversizeBinaryResponse {
+	oversize: true;
+	/** Full request URL (no credentials). */
+	url: string;
+	/** Declared `Content-Length`, when the API sent one. */
+	size: number | undefined;
+	contentType: string;
+	contentDisposition: string | undefined;
+}
+
+// Reads the body into memory. Returns undefined, and cancels the stream, as soon as it passes maxBytes.
+async function readBodyCapped(res: Response, maxBytes: number): Promise<Buffer | undefined> {
+	if (!res.body) return Buffer.alloc(0);
+	const reader = res.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		total += value.byteLength;
+		if (total > maxBytes) {
+			await reader.cancel().catch(() => undefined);
+			return undefined;
+		}
+		chunks.push(value);
+	}
+	return Buffer.concat(chunks, total);
 }
 
 // Maps HTTP status code to the appropriate typed error subclass.
@@ -102,10 +137,15 @@ async function parseErrorResponse(res: Response): Promise<ApiError | null> {
 }
 
 export async function apiRequest(
+	opts: ApiRequestOptions & { binary: true; maxBytes: number },
+): Promise<BinaryResponse | OversizeBinaryResponse>;
+export async function apiRequest(
 	opts: ApiRequestOptions & { binary: true },
 ): Promise<BinaryResponse>;
 export async function apiRequest(opts: ApiRequestOptions): Promise<unknown>;
-export async function apiRequest(opts: ApiRequestOptions): Promise<unknown | BinaryResponse> {
+export async function apiRequest(
+	opts: ApiRequestOptions,
+): Promise<unknown | BinaryResponse | OversizeBinaryResponse> {
 	const token = getApiToken(opts.apiToken);
 	if (!token) {
 		throw new UnauthorizedError('THREATZONE_API_TOKEN env var or apiToken arg is required');
@@ -153,6 +193,34 @@ export async function apiRequest(opts: ApiRequestOptions): Promise<unknown | Bin
 		if (!res.ok) {
 			const apiErr = await parseErrorResponse(res);
 			throw apiErr;
+		}
+		if (opts.maxBytes !== undefined) {
+			const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
+			const contentDisposition = res.headers.get('content-disposition') ?? undefined;
+			const lengthHeader = res.headers.get('content-length');
+			const declared = lengthHeader === null ? undefined : Number(lengthHeader);
+			const size = declared !== undefined && Number.isFinite(declared) ? declared : undefined;
+			if (size !== undefined && size > opts.maxBytes) {
+				await res.body?.cancel().catch(() => undefined);
+				return {
+					oversize: true,
+					url: url.toString(),
+					size,
+					contentType,
+					contentDisposition,
+				} satisfies OversizeBinaryResponse;
+			}
+			const buffer = await readBodyCapped(res, opts.maxBytes);
+			if (buffer === undefined) {
+				return {
+					oversize: true,
+					url: url.toString(),
+					size: undefined,
+					contentType,
+					contentDisposition,
+				} satisfies OversizeBinaryResponse;
+			}
+			return { buffer, contentType, contentDisposition } satisfies BinaryResponse;
 		}
 		const arrayBuffer = await res.arrayBuffer();
 		return {

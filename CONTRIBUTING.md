@@ -148,24 +148,29 @@ Conventions:
 
 ### Adding a binary download tool
 
-Use the shared `handleBinaryDownload` helper from `src/api/tools/downloads.ts`:
+Use the shared `handleBinaryDownload` helper and the `downloadShape` / `byMode` helpers from `src/api/tools/downloads.ts`. `registerDownloadTools(server, ctx)` gets the `ToolContext`, so the tool can build a different schema and description for each transport mode:
 
 ```ts
 server.tool(
   'tz_download_thing',
-  'Download <thing>. Returns base64 ≤25 MB; pass save_to with an absolute path for larger files.',
-  {
-    uuid: z.string(),
-    api_token: z.string().optional(),
-    save_to: z.string().optional().describe('Absolute filesystem path; if omitted, returns base64 (max 25 MB)'),
-  },
+  byMode(
+    ctx,
+    'Download <thing>. Returns base64 for files up to 25 MB; pass save_to with an absolute path for larger files.',
+    `Download <thing>. ${HTTP_LARGE_FILE_NOTE}`,
+  ),
+  // Adds save_to in stdio mode only.
+  downloadShape(ctx, {
+    uuid: z.string().describe('Submission UUID'),
+    api_token: apiTokenSchema,
+  }),
   async (args): Promise<CallToolResult> => {
     try {
-      return await handleBinaryDownload(
-        `/submissions/${args.uuid}/download/thing`,
-        args.api_token,
-        args.save_to,
-      );
+      return await handleBinaryDownload(ctx, {
+        path: `/submissions/${args.uuid}/download/thing`,
+        apiToken: args.api_token,
+        saveTo: args.save_to,
+        fallbackFilename: `${args.uuid}.thing`,
+      });
     } catch (err) {
       return apiErrorResult(err);
     }
@@ -173,7 +178,12 @@ server.tool(
 );
 ```
 
-The helper enforces the 25 MB inline cap, handles the `save_to` disk-write branch, and parses `Content-Disposition` for the filename.
+The helper parses `Content-Disposition` for the filename and enforces the 25 MB inline cap. Its behavior depends on the transport mode:
+
+- **HTTP mode**: the server never writes to its own disk. A file over 25 MB is not read. The tool returns the Public API URL and a `curl` command with a `<YOUR_API_TOKEN>` placeholder. Never put a real token in a tool result.
+- **stdio mode**: the helper handles the `save_to` disk-write branch.
+
+In HTTP mode, a new tool must not take an argument that reads or writes a path on the server disk. Use base64 content instead, as the submit tools do with `file_base64`.
 
 ### Adding a write-surface tool (POST)
 
