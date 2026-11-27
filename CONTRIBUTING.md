@@ -255,7 +255,7 @@ printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion
     node dist/index.js 2>/dev/null
 ```
 
-There is no automated test suite yet — `yarn test` runs Jest with `--passWithNoTests`. Tests are welcome but not required.
+`yarn test` compiles `src/` and `test/` with `tsconfig.test.json` into `dist-test/` and runs the `node:test` files (`test/**/*.test.ts`). Use local ports and in-process mocks only. Do not add a test framework dependency.
 
 ---
 

@@ -25,19 +25,30 @@ export function registerVncTools(server: McpServer): void {
 	// --- connect ---
 	server.tool(
 		'connect',
-		'Connect to a Threat.Zone session by submission UUID, submission URL, cloudvnc URL, or raw websockify URL',
+		'Open the live view of a running Threat.Zone sandbox run. Pass `submission_uuid`: the server gets the live-view link from the Public API (`GET /submissions/{uuid}/dynamic/session`) and connects. Only the submitter or a workspace admin gets a link. URL-analysis live sessions are not supported yet. For a WebSocket URL that you already have, pass `url` (ws:// or wss://) or `ws_url`.',
 		{
+			submission_uuid: z
+				.string()
+				.uuid()
+				.optional()
+				.describe('UUID of a sandbox (file) submission whose run is in progress'),
+			api_token: z
+				.string()
+				.optional()
+				.describe(
+					'Override THREATZONE_API_TOKEN env var for this call (used with submission_uuid)',
+				),
 			url: z
 				.string()
 				.optional()
 				.describe(
-					'One of: bare submission UUID (e.g. 9a6f8a57-…); submission page URL (https://app.threat.zone/submission/<UUID>[/dynamic-scan-report]); cloudvnc URL (https://app.threat.zone/cloudvnc?token=UUID — probes /api/token-info to route VNC vs WebRTC); or ws/wss URL (ws:// is auto-upgraded to wss://). Bare UUIDs default to host app.threat.zone.',
+					'Raw ws:// or wss:// VNC WebSocket URL. The scheme is kept as given. Submission UUIDs and submission page URLs are not accepted here: use `submission_uuid`.',
 				),
 			ws_url: z
 				.string()
 				.optional()
 				.describe(
-					'Raw websockify URL when you already have one (e.g. wss://host:9191/?token=UUID). Use `url` instead unless you know you need this.',
+					'Raw websockify URL when you already have one (e.g. wss://host:9191/?token=...). Use with `ws_cookie` if the endpoint needs a cookie.',
 				),
 			ws_cookie: z
 				.string()
