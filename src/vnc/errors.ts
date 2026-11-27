@@ -41,13 +41,6 @@ export class TimeoutError extends VncError {
 	}
 }
 
-export class TokenResolutionError extends VncError {
-	constructor(token: string, reason: string) {
-		super(`Failed to resolve token '${token}': ${reason}`, 'TOKEN_RESOLUTION_ERROR');
-		this.name = 'TokenResolutionError';
-	}
-}
-
 export class UnsupportedTransportError extends VncError {
 	constructor(transport: string) {
 		super(

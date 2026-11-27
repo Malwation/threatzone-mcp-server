@@ -31,10 +31,10 @@ Use this MCP server when an agent needs to:
 
 - **48 API tools** wrapping the full [Threat.Zone Public API](https://app.threat.zone/public-api/guide) — full read + write surface
 - **16 VNC computer-use tools** — screenshot, keyboard, mouse, clipboard, file transfer, all driving the live sandbox VM during dynamic analysis
-- **Auto-routing connect** — paste any URL shape (UUID, submission page, cloudvnc, ws/wss); the server probes `/api/token-info` and picks VNC websockify or WebRTC signaling automatically
+- **Submission connect** — pass a sandbox `submission_uuid`; the server gets the live-view link from the Public API (`GET /submissions/{uuid}/dynamic/session`) and connects over VNC websockify
 - **Multi-backend VNC** — auto-selects RFB (None / VNC-Auth), RSA-AES (RA2/RA2ne), or VeNCrypt/TLS based on server security type
 - **Streamable HTTP transport** by default — one process serves multiple agents concurrently; flip to `stdio` for single-shot CLI debugging
-- **WebRTC backend** for Android sandbox sessions (H.264, werift)
+- **WebRTC backend** for Android sandbox sessions (H.264, werift). `connect` does not open RTC sessions in this release.
 
 ---
 
@@ -94,12 +94,12 @@ The server exposes two tool families: **`tz_*`** (Public API) and **unprefixed**
 ### VNC: connection & session control
 
 <use_case>
-Use these to attach to (and detach from) a live sandbox VM. The `connect` tool accepts any URL shape — submission UUID, submission page URL, cloudvnc URL, or raw ws/wss — and normalizes them all to the right transport. After a submit you have ~120–300 s before the VM tears down; spend that budget wisely.
+Use these to attach to (and detach from) a live sandbox VM. Pass the sandbox submission UUID to `connect` as `submission_uuid`. The server gets the live-view link from the Public API and connects. Only the submitter or a workspace admin gets a link. After a submit you have ~120–300 s before the VM tears down; spend that budget wisely.
 </use_case>
 
 | Tool | Description |
 |---|---|
-| `connect` | Connect by submission UUID, submission page URL, cloudvnc URL, or raw ws/wss URL |
+| `connect` | Connect by `submission_uuid` (link from the Public API session route), or by a raw ws/wss URL |
 | `disconnect` | Disconnect a session |
 
 ### VNC: screen
@@ -265,42 +265,37 @@ Use these to create new analyses. `tz_submit_sandbox` is the heaviest (full stat
 
 ---
 
-## Connection URL shapes
+## Connection inputs
 
-The single `url` argument to `connect` accepts every shape below; the server normalizes each to a canonical websockify URL (`wss://<host>/cloudvnc?token=<UUID>`) and connects.
+`connect` takes exactly one of the inputs below.
 
-### Submission UUID (defaults to `app.threat.zone`)
-
-```
-connect(url: "9a6f8a57-b9d8-4372-b600-f4d196f5da43")
-# → wss://app.threat.zone/cloudvnc?token=9a6f8a57-b9d8-4372-b600-f4d196f5da43
-```
-
-### Submission page URL (trailing path stripped)
+### Sandbox submission UUID (recommended)
 
 ```
-connect(url: "https://app.threat.zone/submission/9a6f8a57-.../dynamic-scan-report")
-# → wss://app.threat.zone/cloudvnc?token=9a6f8a57-...
+connect(submission_uuid: "9a6f8a57-b9d8-4372-b600-f4d196f5da43")
 ```
 
-### CloudVNC URL (probes `/api/token-info` to route VNC vs WebRTC)
+The server calls `GET /submissions/{uuid}/dynamic/session` with your API token (`api_token` arg or `THREATZONE_API_TOKEN`) and dials the returned link. Errors:
+
+- The run has not started or has ended: the live view is not running.
+- You are not the submitter or a workspace admin: no link is returned.
+- URL-analysis submissions: not supported by `connect` yet.
+
+### ws:// or wss:// URL
 
 ```
-connect(url: "https://app.threat.zone/cloudvnc?token=UUID")
+connect(url: "wss://host/path?token=...")
 ```
 
-### ws:// or wss:// URL (`ws://` is auto-upgraded)
+The scheme is kept as given. A bare UUID or a submission page URL in `url` returns an error that tells you to use `submission_uuid`.
+
+### Raw websockify URL with cookie (`ws_url` arg)
 
 ```
-connect(url: "ws://app.threat.zone/cloudvnc?token=UUID")
-# → wss://app.threat.zone/cloudvnc?token=UUID
+connect(ws_url: "wss://host/?token=...", ws_cookie: "sessionid=...")
 ```
 
-### Raw websockify URL with cookie (legacy `ws_url` arg)
-
-```
-connect(ws_url: "wss://app.threat.zone/?token=UUID", ws_cookie: "sessionid=...")
-```
+Tool output never includes the `?token=` query of the URL.
 
 ---
 

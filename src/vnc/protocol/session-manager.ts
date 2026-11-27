@@ -25,11 +25,7 @@ export class SessionManager {
 		return client;
 	}
 
-	/**
-	 * Register an already-connected session. Used by the connect tool's RTC
-	 * branch (RtcClient is constructed there because it needs transport-specific
-	 * config like signalingUrl that doesn't fit the VncSessionConfig shape).
-	 */
+	/** Register an already-connected session and make it the default. */
 	register(client: RemoteSession): void {
 		this.sessions.set(client.config.sessionId, client);
 		this.defaultSessionId = client.config.sessionId;

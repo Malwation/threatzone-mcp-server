@@ -10,7 +10,7 @@
 		"start:dev": "ts-node src/index.ts",
 		"check": "biome check .",
 		"check:write": "biome check --write .",
-		"test": "jest --passWithNoTests"
+		"test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/**/*.test.js\""
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.12.1",

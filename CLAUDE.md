@@ -13,7 +13,7 @@ The official Threat.Zone MCP (Model Context Protocol) server. Provides VNC and W
 - `yarn start:dev` — run from source via ts-node (no watch mode, restart manually)
 - `yarn check` — lint/format with Biome
 - `yarn check:write` — lint/format and auto-fix
-- `yarn test` — run Jest (currently no tests)
+- `yarn test` — compile with `tsconfig.test.json` into `dist-test/` and run the `node:test` files in `test/`
 
 **Note:** `yarn check` (without `run`) invokes yarn's built-in integrity check, not Biome. Always use `yarn run check` or `yarn run check:write`.
 
@@ -40,7 +40,7 @@ Each feature domain lives in its own directory under `src/` and exports a `regis
   - `session-manager.ts` holds multiple named sessions, tracks a default.
   - `ws-transport.ts` provides WebSocket transport for websockify proxies.
 - **`errors.ts`** — `VncError` (extends `McpToolError` from `src/shared/errors.ts`) plus domain-specific error subclasses.
-- **`tools/connect.ts`** — central dispatch. Two accepted shapes: `url` (cloudvnc link, e.g. `https://app.threat.zone/cloudvnc?token=UUID`) probes `/api/token-info` and routes to websockify (vnc) or `/webrtc-signal` (webrtc); `ws_url` (+ optional `ws_cookie`) takes a pre-built websockify URL and skips the probe. No host/port, bare-token, or username/password modes — those were removed when Redis support was dropped.
+- **`tools/connect.ts`** — central dispatch. Accepted inputs: `submission_uuid` calls the Public API `GET /submissions/{uuid}/dynamic/session` (via `src/api/client.ts`, with `api_token` or `THREATZONE_API_TOKEN`) and dials the returned VNC link; `url` takes a raw `ws://`/`wss://` URL and keeps its scheme; `ws_url` (+ optional `ws_cookie`) takes a pre-built websockify URL. Bare UUIDs and submission page URLs in `url` are rejected. Output strips the URL query so the live-view token is never printed. `connect` does not open RTC sessions now: the session route returns only VNC links.
 
 ### RTC domain (`src/rtc/`)
 
@@ -68,7 +68,7 @@ WebRTC client for driving Android device gateways through the novnc `/webrtc-sig
 - **`skipLibCheck: true` is load-bearing** — removing it breaks the build due to `rfb2` lacking proper type exports. RTC code also relies on it because `@roamhq/wrtc`'s type re-exports assume `lib.dom`, which we don't load.
 - **Stdout is the MCP transport when `MCP_TRANSPORT=stdio`.** Any `console.log()` corrupts the protocol stream in stdio mode. The codebase uses `console.error()` for debug output everywhere — keep doing that, since the server can be flipped back to stdio at any time and a stray `console.log` would only surface then.
 - **Framebuffer assumes little-endian** pixel layout. Big-endian VNC servers will produce garbled screenshots.
-- **`ffmpeg` and `ffprobe` must be on PATH** for the RTC transport — screenshots spawn them as child processes to decode H.264 → PNG/JPEG and to probe stream dimensions at connect time. Without them, `connect(url:…)` for a webrtc token will fail at the "first frame decoded" step.
+- **`ffmpeg` and `ffprobe` must be on PATH** for the RTC transport — screenshots spawn them as child processes to decode H.264 → PNG/JPEG and to probe stream dimensions at connect time. Without them, an RTC session fails at the "first frame decoded" step.
 - **H.264 only.** The Android gateway never sends an SDP answer to offers that don't advertise H.264 — silently. That's why the project uses `werift` (pure-JS, can offer H.264) instead of `@roamhq/wrtc` (no H.264). Don't swap libraries back without verifying the codec list.
 - **Tool args use VNC pixel coordinates.** `RtcClient.sendPointer()` divides by `screenSize.width/height` internally — but `screenSize` only becomes non-null after the first video frame. Calling input tools before the connect promise resolves will throw "Screen size unknown".
 - **`device_button` reliability is gateway-dependent.** The JSON message (`{type: 'back'|'home'|'power'}`) matches the browser RTCSession (`apps/novnc/vnc/www/core/rtc-session.js:273-284`) byte-for-byte, but Android launchers may override or no-op these. If a button has no visible effect, check the gateway's signaling-server logs first (each press is logged to MCP stderr as `[rtc][ctrl] device_button: …`); don't assume the MCP side is broken.
