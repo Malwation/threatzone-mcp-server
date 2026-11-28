@@ -1,7 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import type { ToolContext } from '../shared/tool-context.js';
 import { errorResult } from './errors.js';
-import { SessionManager } from './protocol/session-manager.js';
+import type { SessionManager } from './protocol/session-manager.js';
 import { handleClipboardRead } from './tools/clipboard-read.js';
 import { handleClipboardWrite } from './tools/clipboard-write.js';
 import { handleConnect } from './tools/connect.js';
@@ -19,48 +21,89 @@ import { handleSendKey } from './tools/send-key.js';
 import { handleTypeText } from './tools/type-text.js';
 import { handleWaitForScreenChange } from './tools/wait-for-screen-change.js';
 
-const sessionManager = new SessionManager();
+const CONNECT_DESCRIPTION_BASE =
+	'Open the live view of a running Threat.Zone sandbox run. Pass `submission_uuid`: the server gets the live-view link from the Public API (`GET /submissions/{uuid}/dynamic/session`) and connects. Only the submitter or a workspace admin gets a link. URL-analysis live sessions are not supported yet.';
 
-export function registerVncTools(server: McpServer): void {
+const stdioConnectSchema = {
+	submission_uuid: z
+		.string()
+		.uuid()
+		.optional()
+		.describe('UUID of a sandbox (file) submission whose run is in progress'),
+	api_token: z
+		.string()
+		.optional()
+		.describe('Override THREATZONE_API_TOKEN env var for this call (used with submission_uuid)'),
+	url: z
+		.string()
+		.optional()
+		.describe(
+			'Raw ws:// or wss:// VNC WebSocket URL. The scheme is kept as given. Submission UUIDs and submission page URLs are not accepted here: use `submission_uuid`.',
+		),
+	ws_url: z
+		.string()
+		.optional()
+		.describe(
+			'Raw websockify URL when you already have one (e.g. wss://host:9191/?token=...). Use with `ws_cookie` if the endpoint needs a cookie.',
+		),
+	ws_cookie: z
+		.string()
+		.optional()
+		.describe('Cookie header value for authenticated websockify connections (paired with ws_url)'),
+	session_id: z.string().optional().describe('Custom session identifier'),
+};
+
+// HTTP mode: the server derives the session ID from the live-view link, so the caller cannot pick it.
+const httpConnectSchema = {
+	submission_uuid: z
+		.string()
+		.uuid()
+		.describe('UUID of a sandbox (file) submission whose run is in progress'),
+	api_token: stdioConnectSchema.api_token,
+};
+
+const stdioSessionId = z.string().optional().describe('Session ID');
+const httpSessionId = z
+	.string()
+	.describe(
+		'Session ID returned by connect (required). If the connection closed, this call reconnects first. After the run ends, the call returns a "live view ended" error.',
+	);
+
+export function registerVncTools(
+	server: McpServer,
+	ctx: ToolContext,
+	sessionManager: SessionManager,
+): void {
+	const http = ctx.transportMode === 'http';
+	// HTTP mode has no default session: every session tool needs the ID that connect returned.
+	const sessionId = http ? (httpSessionId as unknown as typeof stdioSessionId) : stdioSessionId;
+
+	// Session tools run inside sessionManager.run: it dials a closed session again before the call.
+	// The handler gets the ID that run resolved, so the stdio default is resolved only once.
+	const withSession =
+		<A extends { session_id?: string }>(
+			handler: (args: A, sessions: SessionManager) => CallToolResult | Promise<CallToolResult>,
+		) =>
+		async (args: A): Promise<CallToolResult> => {
+			try {
+				return await sessionManager.run(args.session_id, (_client, id) =>
+					handler({ ...args, session_id: id }, sessionManager),
+				);
+			} catch (err) {
+				return errorResult(err);
+			}
+		};
+
 	// --- connect ---
 	server.tool(
 		'connect',
-		'Open the live view of a running Threat.Zone sandbox run. Pass `submission_uuid`: the server gets the live-view link from the Public API (`GET /submissions/{uuid}/dynamic/session`) and connects. Only the submitter or a workspace admin gets a link. URL-analysis live sessions are not supported yet. For a WebSocket URL that you already have, pass `url` (ws:// or wss://) or `ws_url`.',
-		{
-			submission_uuid: z
-				.string()
-				.uuid()
-				.optional()
-				.describe('UUID of a sandbox (file) submission whose run is in progress'),
-			api_token: z
-				.string()
-				.optional()
-				.describe(
-					'Override THREATZONE_API_TOKEN env var for this call (used with submission_uuid)',
-				),
-			url: z
-				.string()
-				.optional()
-				.describe(
-					'Raw ws:// or wss:// VNC WebSocket URL. The scheme is kept as given. Submission UUIDs and submission page URLs are not accepted here: use `submission_uuid`.',
-				),
-			ws_url: z
-				.string()
-				.optional()
-				.describe(
-					'Raw websockify URL when you already have one (e.g. wss://host:9191/?token=...). Use with `ws_cookie` if the endpoint needs a cookie.',
-				),
-			ws_cookie: z
-				.string()
-				.optional()
-				.describe(
-					'Cookie header value for authenticated websockify connections (paired with ws_url)',
-				),
-			session_id: z.string().optional().describe('Custom session identifier'),
-		},
+		http
+			? `${CONNECT_DESCRIPTION_BASE} The result holds a \`session_id\`: pass it to every session tool. Calling connect again for the same run returns the same \`session_id\`. The connection closes after 5 minutes with no tool call, and the next tool call reconnects. After the run ends, tool calls return a "live view ended" error.`
+			: `${CONNECT_DESCRIPTION_BASE} For a WebSocket URL that you already have, pass \`url\` (ws:// or wss://) or \`ws_url\`.`,
+		http ? (httpConnectSchema as unknown as typeof stdioConnectSchema) : stdioConnectSchema,
 		async (args) => {
 			try {
-				return await handleConnect(args, sessionManager);
+				return await handleConnect(args, sessionManager, ctx);
 			} catch (err) {
 				return errorResult(err);
 			}
@@ -72,10 +115,9 @@ export function registerVncTools(server: McpServer): void {
 		'disconnect',
 		'Disconnect from a VNC session',
 		{
-			session_id: z
-				.string()
-				.optional()
-				.describe('Session to disconnect (uses active session if omitted)'),
+			session_id: http
+				? z.string().describe('Session ID returned by connect (required)')
+				: z.string().optional().describe('Session to disconnect (uses active session if omitted)'),
 		},
 		(args) => {
 			try {
@@ -91,7 +133,7 @@ export function registerVncTools(server: McpServer): void {
 		'screenshot',
 		'Capture the current VNC screen as an image',
 		{
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 			format: z.enum(['png', 'jpeg']).optional().describe('Image format (default: png)'),
 			quality: z
 				.number()
@@ -109,13 +151,7 @@ export function registerVncTools(server: McpServer): void {
 				.optional()
 				.describe('Capture a specific region (full screen if omitted)'),
 		},
-		async (args) => {
-			try {
-				return await handleScreenshot(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleScreenshot),
 	);
 
 	// --- send_key ---
@@ -129,15 +165,9 @@ export function registerVncTools(server: McpServer): void {
 				.array(z.enum(['ctrl', 'alt', 'shift', 'super', 'meta']))
 				.optional()
 				.describe('Modifier keys to hold during the key press'),
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		(args) => {
-			try {
-				return handleSendKey(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleSendKey),
 	);
 
 	// --- type_text ---
@@ -150,15 +180,9 @@ export function registerVncTools(server: McpServer): void {
 				.number()
 				.optional()
 				.describe('Delay between keystrokes in ms (default: 12)'),
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		async (args) => {
-			try {
-				return await handleTypeText(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleTypeText),
 	);
 
 	// --- mouse_click ---
@@ -173,15 +197,9 @@ export function registerVncTools(server: McpServer): void {
 				.optional()
 				.describe('Mouse button (default: left)'),
 			click_type: z.enum(['single', 'double']).optional().describe('Click type (default: single)'),
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		async (args) => {
-			try {
-				return await handleMouseClick(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleMouseClick),
 	);
 
 	// --- mouse_move ---
@@ -191,15 +209,9 @@ export function registerVncTools(server: McpServer): void {
 		{
 			x: z.coerce.number().describe('X coordinate'),
 			y: z.coerce.number().describe('Y coordinate'),
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		(args) => {
-			try {
-				return handleMouseMove(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleMouseMove),
 	);
 
 	// --- mouse_drag ---
@@ -224,15 +236,9 @@ export function registerVncTools(server: McpServer): void {
 				.array(z.object({ x: z.coerce.number(), y: z.coerce.number() }))
 				.optional()
 				.describe('Bezier control points for curved paths. 0=linear, 1=quadratic, 2=cubic'),
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		async (args) => {
-			try {
-				return await handleMouseDrag(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleMouseDrag),
 	);
 
 	// --- scroll ---
@@ -244,15 +250,9 @@ export function registerVncTools(server: McpServer): void {
 			y: z.coerce.number().describe('Y coordinate'),
 			direction: z.enum(['up', 'down', 'left', 'right']).describe('Scroll direction'),
 			clicks: z.coerce.number().optional().describe('Number of scroll steps (default: 3)'),
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		(args) => {
-			try {
-				return handleScroll(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleScroll),
 	);
 
 	// --- get_screen_size ---
@@ -260,15 +260,9 @@ export function registerVncTools(server: McpServer): void {
 		'get_screen_size',
 		'Get the VNC screen dimensions',
 		{
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		(args) => {
-			try {
-				return handleGetScreenSize(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleGetScreenSize),
 	);
 
 	// --- wait_for_screen_change ---
@@ -286,15 +280,9 @@ export function registerVncTools(server: McpServer): void {
 				})
 				.optional()
 				.describe('Watch only a specific screen region'),
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		async (args) => {
-			try {
-				return await handleWaitForScreenChange(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleWaitForScreenChange),
 	);
 
 	// --- file_upload ---
@@ -305,15 +293,9 @@ export function registerVncTools(server: McpServer): void {
 			localBase64: z.string().describe('Base64-encoded file content'),
 			remotePath: z.string().describe('Destination file path on the remote machine'),
 			os: z.enum(['windows', 'linux']).optional().describe('Remote OS (default: windows)'),
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		async (args) => {
-			try {
-				return await handleFileUpload(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleFileUpload),
 	);
 
 	// --- file_download ---
@@ -323,15 +305,9 @@ export function registerVncTools(server: McpServer): void {
 		{
 			remotePath: z.string().describe('File path on the remote machine to download'),
 			os: z.enum(['windows', 'linux']).optional().describe('Remote OS (default: windows)'),
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		async (args) => {
-			try {
-				return await handleFileDownload(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleFileDownload),
 	);
 
 	// --- clipboard_write ---
@@ -340,15 +316,9 @@ export function registerVncTools(server: McpServer): void {
 		"Send text to the remote machine's clipboard (UTF-8 with Extended Clipboard, Latin-1 fallback)",
 		{
 			text: z.string().describe('Text to place on the remote clipboard'),
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		(args) => {
-			try {
-				return handleClipboardWrite(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleClipboardWrite),
 	);
 
 	// --- device_button ---
@@ -357,15 +327,9 @@ export function registerVncTools(server: McpServer): void {
 		'Press an Android device button (RTC sessions only)',
 		{
 			button: z.enum(['back', 'home', 'power']).describe('Which physical device button to press'),
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		(args) => {
-			try {
-				return handleDeviceButton(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleDeviceButton),
 	);
 
 	// --- clipboard_read ---
@@ -373,14 +337,8 @@ export function registerVncTools(server: McpServer): void {
 		'clipboard_read',
 		'Read the last clipboard text received from the remote machine',
 		{
-			session_id: z.string().optional().describe('Session ID'),
+			session_id: sessionId,
 		},
-		(args) => {
-			try {
-				return handleClipboardRead(args, sessionManager);
-			} catch (err) {
-				return errorResult(err);
-			}
-		},
+		withSession(handleClipboardRead),
 	);
 }

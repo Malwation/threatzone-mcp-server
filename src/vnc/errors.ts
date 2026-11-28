@@ -23,14 +23,29 @@ export class AuthenticationError extends VncError {
 }
 
 export class SessionNotFoundError extends VncError {
-	constructor(sessionId?: string) {
+	constructor(sessionId?: string, message?: string) {
 		super(
-			sessionId
-				? `VNC session '${sessionId}' not found`
-				: 'No active VNC session. Call "connect" first.',
+			message ??
+				(sessionId
+					? `VNC session '${sessionId}' not found`
+					: 'No active VNC session. Call "connect" first.'),
 			'SESSION_NOT_FOUND',
 		);
 		this.name = 'SessionNotFoundError';
+	}
+}
+
+/** A closed session could not dial its live-view link again. `detail` must hold no token. */
+export class LiveViewEndedError extends VncError {
+	constructor(detail: string, fromSubmission: boolean) {
+		const next = fromSubmission
+			? 'If the run is still in progress, call "connect" with submission_uuid to open a new session.'
+			: 'Call "connect" again to open a new session.';
+		super(
+			`The live view of this session ended (the run finished or the VM stopped): ${detail}. ${next}`,
+			'LIVE_VIEW_ENDED',
+		);
+		this.name = 'LiveViewEndedError';
 	}
 }
 

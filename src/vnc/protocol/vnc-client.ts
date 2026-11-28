@@ -41,6 +41,7 @@ export class VncClient implements RemoteSession {
 	private connectTimeout: number;
 	private screenshotTimeout: number;
 	private lastClipboardText: string | null = null;
+	private closeListeners: (() => void)[] = [];
 
 	readonly transport: RemoteTransport = 'vnc';
 	state: VncSessionState = 'disconnected';
@@ -258,6 +259,7 @@ export class VncClient implements RemoteSession {
 		cli.on('error', (err: string | Error) => {
 			if (this.state !== 'connecting') {
 				this.state = 'error';
+				this.emitClose();
 			}
 		});
 
@@ -265,7 +267,16 @@ export class VncClient implements RemoteSession {
 			if (this.state !== 'error') {
 				this.state = 'disconnected';
 			}
+			this.emitClose();
 		});
+	}
+
+	onClose(listener: () => void): void {
+		this.closeListeners.push(listener);
+	}
+
+	private emitClose(): void {
+		for (const listener of this.closeListeners) listener();
 	}
 
 	disconnect(): void {

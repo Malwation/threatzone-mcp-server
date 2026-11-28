@@ -35,8 +35,8 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY package.json ./
 
-RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin app \
- && chown -R app:0 /app
+# /app stays owned by root: the runtime user can read the app but not change it.
+RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin app
 
 USER app
 

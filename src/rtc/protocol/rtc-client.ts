@@ -79,6 +79,7 @@ export class RtcClient implements RemoteSession {
 	// the Android clipboard changes (clipboard_autosync=true on scrcpy). Mirrors
 	// the VNC client's clipboard cache so clipboard_read returns the same shape.
 	private lastClipboard: string | null = null;
+	private closeListeners: (() => void)[] = [];
 
 	constructor(config: RtcClientConfig, options?: RtcClientOptions) {
 		this.config = config;
@@ -196,6 +197,7 @@ export class RtcClient implements RemoteSession {
 						bail?.(new RtcConnectionError(`Peer connection ${s} during handshake`));
 					} else if (this.state === 'connected') {
 						this.state = 'disconnected';
+						for (const listener of this.closeListeners) listener();
 					}
 				}
 			});
@@ -279,6 +281,10 @@ export class RtcClient implements RemoteSession {
 	disconnect(): void {
 		this.cleanup();
 		this.state = 'disconnected';
+	}
+
+	onClose(listener: () => void): void {
+		this.closeListeners.push(listener);
 	}
 
 	private cleanup(): void {

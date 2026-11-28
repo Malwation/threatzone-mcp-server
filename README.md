@@ -99,8 +99,21 @@ Use these to attach to (and detach from) a live sandbox VM. Pass the sandbox sub
 
 | Tool | Description |
 |---|---|
-| `connect` | Connect by `submission_uuid` (link from the Public API session route), or by a raw ws/wss URL |
+| `connect` | Connect by `submission_uuid` (link from the Public API session route). stdio mode also accepts a raw ws/wss URL |
 | `disconnect` | Disconnect a session |
+
+<important_notes>
+In HTTP mode (the default, and the hosted server), each live view is a separate session:
+
+1. `connect` takes only `submission_uuid` (and `api_token`). The result holds a `session_id`.
+2. Pass that `session_id` to every session tool (`screenshot`, `mouse_*`, `send_key`, `type_text`, `scroll`, `clipboard_*`, `file_*`, `wait_for_screen_change`, `get_screen_size`, `device_button`, `disconnect`). The argument is required. There is no default session.
+3. The server makes the `session_id` from the live-view link. You cannot choose it. A `connect` call for the same run returns the same `session_id` and uses the open connection.
+4. The connection closes after 5 minutes with no tool call, or when the network drops. The session stays: the next tool call reconnects to the same live view and then runs. A long call (for example `wait_for_screen_change`) keeps its session open.
+5. When the sandbox run ends, the reconnect fails. The tool call returns a "live view ended" error with the gateway close code, and the session is removed. If the run is still in progress, call `connect` with `submission_uuid` again.
+6. A tool call with an unknown or removed `session_id` returns "Session not found or ended".
+
+In stdio mode, `session_id` is optional, tools use the last connected session by default, and `connect` also accepts the raw URL inputs below. Reconnect works the same way in stdio mode. A call without `session_id` reconnects the default session. It never moves to another session, and only `disconnect` changes the default. For a session opened with `url` or `ws_url`, the "live view ended" error tells you to call `connect` again. Both modes remove a closed session after 30 minutes with no tool call.
+</important_notes>
 
 ### VNC: screen
 
@@ -228,7 +241,12 @@ Network sub-reports use **`limit`/`skip`** offset pagination — *not* `page`/`l
 ### API: downloads
 
 <important_notes>
-Binary downloads return base64 inline up to **25 MB**. For larger payloads (PCAPs, HTML reports), pass `save_to: "/absolute/path"` — the response then carries `{ saved, path, size, mimetype }` only, keeping the JSON-RPC frame small. Original samples come down as a password-protected ZIP; the password is `infected` (industry standard for malware sandboxing).
+Binary downloads return base64 inline up to **25 MB**. Original samples come down as a password-protected ZIP. The password is `infected` (industry standard for malware sandboxing).
+
+The arguments for a larger file depend on the transport (`MCP_TRANSPORT`):
+
+- **HTTP mode** (the default, and the hosted server at `https://app.threat.zone/mcp`): the download tools have no `save_to` argument, and the server never writes to its own disk. For a file over 25 MB, the tool does not read the file. It returns the Public API download URL (method `GET`, built from `THREATZONE_API_BASE_URL`) and a ready `curl` command. Fetch the URL with the same Threat.Zone API token that you use for this MCP server, as `Authorization: Bearer <your API token>`. The `curl` command holds a `<YOUR_API_TOKEN>` placeholder, never a real token. `tz_download_screenshot` returns the PNG as an MCP image block.
+- **stdio mode**: pass `save_to: "/absolute/path"` for a larger file. The server writes the file to that path, and the response holds only `{ saved, path, size, mimetype }`.
 </important_notes>
 
 | Tool | Description |
@@ -251,7 +269,7 @@ Use these to create new analyses. `tz_submit_sandbox` is the heaviest (full stat
 <important_notes>
 1. **Pass `private: true`** unless the user has explicitly authorised public sharing.
 2. **Submit tools return the UUID and exit.** Poll status with `tz_submission_get` — do not block.
-3. **`file_base64` is the entire file** as a single base64 string. For archive submissions, pass `entrypoint` to point at the file inside.
+3. **`file_base64` is the entire file** as a single base64 string. For archive submissions, pass `entrypoint` to point at the file inside. In HTTP mode, `file_base64` (with `filename`) is the only way to send a file. In stdio mode, you can pass `file_path` instead, and the server reads the file from its local disk.
 4. **`tz_submit_sandbox` accepts `metafields`** to override defaults (e.g. `{"timeout": 300}` for the maximum 5-minute window). Discover available keys with `tz_config_metafields_sandbox`.
 </important_notes>
 
@@ -267,7 +285,7 @@ Use these to create new analyses. `tz_submit_sandbox` is the heaviest (full stat
 
 ## Connection inputs
 
-`connect` takes exactly one of the inputs below.
+`connect` takes exactly one of the inputs below. HTTP mode accepts only `submission_uuid`. The raw URL inputs (`url`, `ws_url`, `ws_cookie`) and a custom `session_id` are available in stdio mode only.
 
 ### Sandbox submission UUID (recommended)
 
@@ -281,7 +299,7 @@ The server calls `GET /submissions/{uuid}/dynamic/session` with your API token (
 - You are not the submitter or a workspace admin: no link is returned.
 - URL-analysis submissions: not supported by `connect` yet.
 
-### ws:// or wss:// URL
+### ws:// or wss:// URL (stdio mode only)
 
 ```
 connect(url: "wss://host/path?token=...")
@@ -289,7 +307,7 @@ connect(url: "wss://host/path?token=...")
 
 The scheme is kept as given. A bare UUID or a submission page URL in `url` returns an error that tells you to use `submission_uuid`.
 
-### Raw websockify URL with cookie (`ws_url` arg)
+### Raw websockify URL with cookie (`ws_url` arg, stdio mode only)
 
 ```
 connect(ws_url: "wss://host/?token=...", ws_cookie: "sessionid=...")

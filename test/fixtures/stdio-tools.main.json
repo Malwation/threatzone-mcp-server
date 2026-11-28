@@ -1,0 +1,1942 @@
+[
+	{
+		"name": "connect",
+		"description": "Open the live view of a running Threat.Zone sandbox run. Pass `submission_uuid`: the server gets the live-view link from the Public API (`GET /submissions/{uuid}/dynamic/session`) and connects. Only the submitter or a workspace admin gets a link. URL-analysis live sessions are not supported yet. For a WebSocket URL that you already have, pass `url` (ws:// or wss://) or `ws_url`.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"submission_uuid": {
+					"type": "string",
+					"format": "uuid",
+					"description": "UUID of a sandbox (file) submission whose run is in progress"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call (used with submission_uuid)"
+				},
+				"url": {
+					"type": "string",
+					"description": "Raw ws:// or wss:// VNC WebSocket URL. The scheme is kept as given. Submission UUIDs and submission page URLs are not accepted here: use `submission_uuid`."
+				},
+				"ws_url": {
+					"type": "string",
+					"description": "Raw websockify URL when you already have one (e.g. wss://host:9191/?token=...). Use with `ws_cookie` if the endpoint needs a cookie."
+				},
+				"ws_cookie": {
+					"type": "string",
+					"description": "Cookie header value for authenticated websockify connections (paired with ws_url)"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Custom session identifier"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "disconnect",
+		"description": "Disconnect from a VNC session",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"session_id": {
+					"type": "string",
+					"description": "Session to disconnect (uses active session if omitted)"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "screenshot",
+		"description": "Capture the current VNC screen as an image",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				},
+				"format": {
+					"type": "string",
+					"enum": ["png", "jpeg"],
+					"description": "Image format (default: png)"
+				},
+				"quality": {
+					"type": "number",
+					"minimum": 1,
+					"maximum": 100,
+					"description": "JPEG quality 1-100 (ignored for PNG)"
+				},
+				"region": {
+					"type": "object",
+					"properties": {
+						"x": {
+							"type": "number"
+						},
+						"y": {
+							"type": "number"
+						},
+						"width": {
+							"type": "number"
+						},
+						"height": {
+							"type": "number"
+						}
+					},
+					"required": ["x", "y", "width", "height"],
+					"additionalProperties": false,
+					"description": "Capture a specific region (full screen if omitted)"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "send_key",
+		"description": "Send a keyboard key press. Supports key names (Return, Escape, F1, a), hex keysyms (0xff0d), and modifiers.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"key": {
+					"type": "string",
+					"description": "Key name (e.g. 'Return', 'a', 'F1') or hex keysym (e.g. '0xff0d')"
+				},
+				"down": {
+					"type": "boolean",
+					"description": "true=press, false=release. Omit for press+release."
+				},
+				"modifiers": {
+					"type": "array",
+					"items": {
+						"type": "string",
+						"enum": ["ctrl", "alt", "shift", "super", "meta"]
+					},
+					"description": "Modifier keys to hold during the key press"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"required": ["key"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "type_text",
+		"description": "Type a string of text character by character",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"text": {
+					"type": "string",
+					"description": "Text to type"
+				},
+				"delay_ms": {
+					"type": "number",
+					"description": "Delay between keystrokes in ms (default: 12)"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"required": ["text"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "mouse_click",
+		"description": "Click the mouse at a specific position",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"x": {
+					"type": "number",
+					"description": "X coordinate"
+				},
+				"y": {
+					"type": "number",
+					"description": "Y coordinate"
+				},
+				"button": {
+					"type": "string",
+					"enum": ["left", "middle", "right"],
+					"description": "Mouse button (default: left)"
+				},
+				"click_type": {
+					"type": "string",
+					"enum": ["single", "double"],
+					"description": "Click type (default: single)"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"required": ["x", "y"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "mouse_move",
+		"description": "Move the mouse cursor to a specific position",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"x": {
+					"type": "number",
+					"description": "X coordinate"
+				},
+				"y": {
+					"type": "number",
+					"description": "Y coordinate"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"required": ["x", "y"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "mouse_drag",
+		"description": "Drag the mouse from one position to another with button held. Supports bezier curves via controlPoints.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"startX": {
+					"type": "number",
+					"description": "Starting X coordinate"
+				},
+				"startY": {
+					"type": "number",
+					"description": "Starting Y coordinate"
+				},
+				"endX": {
+					"type": "number",
+					"description": "Ending X coordinate"
+				},
+				"endY": {
+					"type": "number",
+					"description": "Ending Y coordinate"
+				},
+				"button": {
+					"type": "string",
+					"enum": ["left", "middle", "right"],
+					"description": "Mouse button (default: left)"
+				},
+				"steps": {
+					"type": "number",
+					"description": "Interpolation steps along the path (default: 10)"
+				},
+				"delay_ms": {
+					"type": "number",
+					"description": "Delay between steps in ms (default: 5)"
+				},
+				"controlPoints": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"x": {
+								"type": "number"
+							},
+							"y": {
+								"type": "number"
+							}
+						},
+						"required": ["x", "y"],
+						"additionalProperties": false
+					},
+					"description": "Bezier control points for curved paths. 0=linear, 1=quadratic, 2=cubic"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"required": ["startX", "startY", "endX", "endY"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "scroll",
+		"description": "Scroll the mouse wheel at a specific position",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"x": {
+					"type": "number",
+					"description": "X coordinate"
+				},
+				"y": {
+					"type": "number",
+					"description": "Y coordinate"
+				},
+				"direction": {
+					"type": "string",
+					"enum": ["up", "down", "left", "right"],
+					"description": "Scroll direction"
+				},
+				"clicks": {
+					"type": "number",
+					"description": "Number of scroll steps (default: 3)"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"required": ["x", "y", "direction"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "get_screen_size",
+		"description": "Get the VNC screen dimensions",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "wait_for_screen_change",
+		"description": "Wait until the remote screen content changes or timeout",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"timeout_ms": {
+					"type": "number",
+					"description": "Maximum wait time in ms (default: 5000)"
+				},
+				"region": {
+					"type": "object",
+					"properties": {
+						"x": {
+							"type": "number"
+						},
+						"y": {
+							"type": "number"
+						},
+						"width": {
+							"type": "number"
+						},
+						"height": {
+							"type": "number"
+						}
+					},
+					"required": ["x", "y", "width", "height"],
+					"additionalProperties": false,
+					"description": "Watch only a specific screen region"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "file_upload",
+		"description": "Upload a base64-encoded file to the remote machine via clipboard + shell commands",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"localBase64": {
+					"type": "string",
+					"description": "Base64-encoded file content"
+				},
+				"remotePath": {
+					"type": "string",
+					"description": "Destination file path on the remote machine"
+				},
+				"os": {
+					"type": "string",
+					"enum": ["windows", "linux"],
+					"description": "Remote OS (default: windows)"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"required": ["localBase64", "remotePath"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "file_download",
+		"description": "Download a file from the remote machine as base64 via clipboard + shell commands",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"remotePath": {
+					"type": "string",
+					"description": "File path on the remote machine to download"
+				},
+				"os": {
+					"type": "string",
+					"enum": ["windows", "linux"],
+					"description": "Remote OS (default: windows)"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"required": ["remotePath"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "clipboard_write",
+		"description": "Send text to the remote machine's clipboard (UTF-8 with Extended Clipboard, Latin-1 fallback)",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"text": {
+					"type": "string",
+					"description": "Text to place on the remote clipboard"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"required": ["text"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "device_button",
+		"description": "Press an Android device button (RTC sessions only)",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"button": {
+					"type": "string",
+					"enum": ["back", "home", "power"],
+					"description": "Which physical device button to press"
+				},
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"required": ["button"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "clipboard_read",
+		"description": "Read the last clipboard text received from the remote machine",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"session_id": {
+					"type": "string",
+					"description": "Session ID"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_me",
+		"description": "Get account information for the authenticated API token: user details, workspace, subscription plan, current usage counters (API requests, daily submissions, concurrent slots), and enabled analysis modules. Counts against your API request limit.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_config_metafields",
+		"description": "All available metafield options across all submission types",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_config_metafields_sandbox",
+		"description": "Sandbox-specific metafield options",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_config_metafields_static",
+		"description": "Static analysis metafield options",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_config_metafields_cdr",
+		"description": "CDR metafield options",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_config_metafields_url",
+		"description": "URL analysis metafield options",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_config_metafields_open_in_browser",
+		"description": "Open-in-browser metafield options",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_config_environments",
+		"description": "Available sandbox OS environments and their feature flags",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_network_configs_list",
+		"description": "Workspace network configurations (proxy/VPN profiles); use the returned ObjectId in tz_submit_sandbox/tz_submit_open_in_browser configurations.networkConfig",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submissions_list",
+		"description": "List submissions in your workspace with rich filtering. Returns paginated `{ items, total, page, limit, totalPages }`. Does NOT auto-paginate — call again with `page: N` to retrieve subsequent pages. Common filters: level (threat verdict), type (file/url), sha256, filename (partial), date range, private flag, tags.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"page": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Page number (1-based, default 1)"
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100,
+					"description": "Items per page (max 100, default 20)"
+				},
+				"level": {
+					"type": "array",
+					"items": {
+						"type": "string",
+						"enum": ["unknown", "benign", "suspicious", "malicious"]
+					},
+					"description": "Filter by threat level (can specify multiple)"
+				},
+				"type": {
+					"type": "string",
+					"enum": ["file", "url"],
+					"description": "Filter by submission type"
+				},
+				"sha256": {
+					"type": "string",
+					"description": "Search by SHA256 hash (exact or prefix match)"
+				},
+				"filename": {
+					"type": "string",
+					"description": "Partial filename match (case-insensitive)"
+				},
+				"startDate": {
+					"type": "string",
+					"description": "ISO 8601 start date filter (createdAt >= startDate)"
+				},
+				"endDate": {
+					"type": "string",
+					"description": "ISO 8601 end date filter (createdAt <= endDate)"
+				},
+				"private": {
+					"type": "boolean",
+					"description": "true = private only, false = public only"
+				},
+				"tags": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"description": "Filter by tags (submissions matching any tag)"
+				},
+				"sort": {
+					"type": "string",
+					"enum": ["createdAt"],
+					"description": "Sort field (default createdAt)"
+				},
+				"order": {
+					"type": "string",
+					"enum": ["asc", "desc"],
+					"description": "Sort direction (default desc)"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_get",
+		"description": "Get full submission detail by UUID: file metadata, hashes, verdict level, all attached reports (dynamic/static/cdr/url_analysis) with status + score, indicator rollup, and matched MITRE ATT&CK techniques. Returns SubmissionInfoDto.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_search_sha256",
+		"description": "Find submissions matching the exact SHA256 hash (across your workspace + public submissions from other workspaces), in reverse creation order. Returns `SubmissionInfoDto[]` (flat array — this endpoint does NOT paginate).",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"sha256": {
+					"type": "string",
+					"minLength": 64,
+					"maxLength": 64,
+					"description": "SHA256 hex hash (64 characters)"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["sha256"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_summary",
+		"description": "High-level submission verdict rollup: overall analysis status, per-module score and verdict counts, indicator level rollup, and matched MITRE technique count.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_indicators",
+		"description": "Behavioural detection indicators from dynamic analysis, paginated. Returns `{ items, total, page, limit, totalPages }` — does NOT auto-paginate.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"page": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "1-based page (default 1)"
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Items per page (default 20)"
+				},
+				"level": {
+					"type": "string",
+					"enum": ["malicious", "suspicious", "benign"],
+					"description": "Filter by indicator threat level"
+				},
+				"category": {
+					"type": "string",
+					"description": "Filter by category (exact match)"
+				},
+				"pid": {
+					"type": "integer",
+					"description": "Filter by process ID"
+				},
+				"attackCode": {
+					"type": "string",
+					"description": "Filter by MITRE ATT&CK technique code (e.g. T1055)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_iocs",
+		"description": "Indicators of Compromise extracted from analysis: IPs, domains, URLs, hashes, registry keys, file paths, etc. Paginated `{ items, total, page, limit, totalPages }` — does NOT auto-paginate.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"page": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "1-based page (default 1)"
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Items per page (default 20)"
+				},
+				"type": {
+					"type": "string",
+					"enum": [
+						"ip",
+						"domain",
+						"url",
+						"email",
+						"sha512",
+						"sha256",
+						"sha1",
+						"md5",
+						"registry",
+						"path",
+						"uuid"
+					],
+					"description": "Filter by IoC type"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_yara_rules",
+		"description": "YARA rule hits during analysis. Paginated — does NOT auto-paginate.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"page": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "1-based page (default 1)"
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Items per page (default 20)"
+				},
+				"category": {
+					"type": "string",
+					"enum": ["malicious", "suspicious", "benign"],
+					"description": "Filter by YARA rule category"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_artifacts",
+		"description": "Full artifact list for the submission: original sample, dropped files, memory dumps, PCAPs, generated YARA rules, and CDR-sanitized variants. NOT paginated — single response with all artifacts.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_mitre",
+		"description": "MITRE ATT&CK technique mappings observed during dynamic analysis. Returns an empty techniques array if none mapped.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_extracted_configs",
+		"description": "Extracted malware configuration data (C2 endpoints, encryption keys, family-specific config) parsed by family-aware extractors.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_eml_analysis",
+		"description": "EML/MSG email analysis results: headers, attachments, embedded URLs, sender reputation. Returns 409 DYNAMIC_REPORT_UNAVAILABLE for non-email submissions.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_processes",
+		"description": "Flat process list captured during dynamic analysis: PID, parent PID, image path, command line, lifetime.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_process_tree",
+		"description": "Process spawn tree (parent–child relationships) captured during dynamic analysis.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_behaviours",
+		"description": "Behaviour events captured during dynamic analysis (file/registry/network/process/mutex). Paginated — does NOT auto-paginate.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"page": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "1-based page (default 1)"
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Items per page (default 100). The API has no explicit max — large pages are OK."
+				},
+				"pid": {
+					"type": "integer",
+					"description": "Filter by process ID"
+				},
+				"operation": {
+					"type": "string",
+					"description": "Filter by operation name (e.g. WriteFile)"
+				},
+				"type": {
+					"type": "string",
+					"description": "Filter by event type (free-form: registry, file, network, process, mutex, …)"
+				},
+				"processName": {
+					"type": "string",
+					"description": "Filter by process name (exact match)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_syscalls",
+		"description": "Raw syscall trace from dynamic analysis. Paginated with default `limit=500` — does NOT auto-paginate.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"page": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "1-based page (default 1)"
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Items per page (default 500). Large per-page sizes are typical."
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_static_scan",
+		"description": "Static analysis scan results per artifact: PE info, embedded strings, sections, imports/exports, signatures.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_cdr",
+		"description": "CDR (Content Disarm & Reconstruction) analysis metadata: threat level, disarmed element counts, per-element details. To download the sanitized CDR output FILE use tz_download_cdr instead (Task 10).",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_signature_check",
+		"description": "Code-signing signature verification per artifact: signer info, certificate chain, validity, and trust level.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_network_summary",
+		"description": "Network activity summary captured during dynamic analysis: per-protocol counts (DNS, HTTP, TCP, UDP) and threat detection rollup.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_network_dns",
+		"description": "DNS queries observed during dynamic analysis (query, response, type). Uses `limit`/`skip` offset pagination — NOT `page`/`limit`. Pass `skip: N` to advance through results.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Maximum results to return"
+				},
+				"skip": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Number of results to skip (for offset pagination)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_network_http",
+		"description": "HTTP request endpoints observed during dynamic analysis (method, URL, status, host). Uses `limit`/`skip` offset pagination — NOT `page`/`limit`. Pass `skip: N` to advance through results.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Maximum results to return"
+				},
+				"skip": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Number of results to skip (for offset pagination)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_network_tcp",
+		"description": "TCP connections observed during dynamic analysis (source IP/port, destination IP/port, byte counts). Uses `limit`/`skip` offset pagination — NOT `page`/`limit`. Pass `skip: N` to advance through results.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Maximum results to return"
+				},
+				"skip": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Number of results to skip (for offset pagination)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_network_udp",
+		"description": "UDP connections observed during dynamic analysis (source IP/port, destination IP/port, byte counts). Uses `limit`/`skip` offset pagination — NOT `page`/`limit`. Pass `skip: N` to advance through results.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Maximum results to return"
+				},
+				"skip": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Number of results to skip (for offset pagination)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_network_threats",
+		"description": "Suricata-style network threat detections from dynamic analysis (signature, severity, src/dst). Uses `limit`/`skip` offset pagination — NOT `page`/`limit`. Pass `skip: N` to advance through results.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"limit": {
+					"type": "integer",
+					"minimum": 1,
+					"description": "Maximum results to return"
+				},
+				"skip": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Number of results to skip (for offset pagination)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_url_analysis",
+		"description": "Full URL analysis report (page screenshot reference, certificate, redirect chain, threat verdict). Returns 409 URL_ANALYSIS_REPORT_UNAVAILABLE for non-URL submissions or incomplete analyses. Check `tz_submission_get` `type` field first to confirm the submission is `url`.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submission_media_list",
+		"description": "List media files (screenshots, videos) captured during dynamic analysis. Use `tz_download_media` (Task 11) to fetch individual files as base64.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_download_sample",
+		"description": "Download the original submission sample as a password-protected ZIP. The ZIP password is `infected` (industry standard for malware sandboxing). Returns base64 for files up to 25 MB; pass save_to with an absolute path for larger files.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"save_to": {
+					"type": "string",
+					"description": "Absolute filesystem path to write the file to disk; if omitted returns base64 (max 25 MB)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_download_artifact",
+		"description": "Download a specific artifact (dropped file, memory dump, etc.) by its MongoDB ObjectId. Get the artifact_id from tz_submission_artifacts. Returns base64 for files up to 25 MB; pass save_to for larger files.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"artifact_id": {
+					"type": "string",
+					"description": "Artifact ObjectId from tz_submission_artifacts"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"save_to": {
+					"type": "string",
+					"description": "Absolute filesystem path to write the file to disk; if omitted returns base64 (max 25 MB)"
+				}
+			},
+			"required": ["uuid", "artifact_id"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_download_pcap",
+		"description": "Download the network packet capture (PCAP) from dynamic analysis. PCAPs can be very large for long analyses — recommend passing save_to with an absolute path.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"save_to": {
+					"type": "string",
+					"description": "Absolute filesystem path to write the file to disk; if omitted returns base64 (max 25 MB)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_download_yara_rule",
+		"description": "Download the auto-generated YARA rule file produced from the analysis. Small text payload — typically returned inline as base64.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"save_to": {
+					"type": "string",
+					"description": "Absolute filesystem path to write the file to disk; if omitted returns base64 (max 25 MB)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_download_html_report",
+		"description": "Download the full HTML analysis report (rendered, ready to share). Useful for archival or human review.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"save_to": {
+					"type": "string",
+					"description": "Absolute filesystem path to write the file to disk; if omitted returns base64 (max 25 MB)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_download_cdr",
+		"description": "Download the CDR (Content Disarm & Reconstruction) sanitized output file — the reconstructed safe version of the input document. To get the CDR analysis metadata report (threat level, disarmed elements), use tz_submission_cdr instead.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"save_to": {
+					"type": "string",
+					"description": "Absolute filesystem path to write the file to disk; if omitted returns base64 (max 25 MB)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_download_screenshot",
+		"description": "Download the URL analysis screenshot as PNG. Returns 409 URL_ANALYSIS_REPORT_UNAVAILABLE for non-URL submissions. For sandbox/open-in-browser media (multiple screenshots/videos), use tz_download_media instead.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"save_to": {
+					"type": "string",
+					"description": "Absolute filesystem path to write the file to disk; if omitted returns base64 (max 25 MB)"
+				}
+			},
+			"required": ["uuid"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_download_media",
+		"description": "Download a specific media file (screenshot or video clip) captured during dynamic analysis by its file_id. Get the file_id from tz_submission_media_list. Returns base64 for files up to 25 MB; pass save_to for larger files.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"uuid": {
+					"type": "string",
+					"description": "Submission UUID"
+				},
+				"file_id": {
+					"type": "string",
+					"description": "Media file ID from tz_submission_media_list"
+				},
+				"api_token": {
+					"type": "string",
+					"description": "Override THREATZONE_API_TOKEN env var for this call"
+				},
+				"save_to": {
+					"type": "string",
+					"description": "Absolute filesystem path to write the file to disk; if omitted returns base64 (max 25 MB)"
+				}
+			},
+			"required": ["uuid", "file_id"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submit_sandbox",
+		"description": "Create a sandbox analysis submission (full static + dynamic). Consumes one daily submission slot from your plan. Returns the submission UUID and message — call tz_submission_get with the UUID to poll status.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"file_path": {
+					"type": "string",
+					"description": "Absolute path (or ~/relative) to a file on the MCP server host. Preferred over file_base64 — avoids tool-call argument size limits. Exactly one of file_path or file_base64 must be set."
+				},
+				"file_base64": {
+					"type": "string",
+					"description": "Base64-encoded file content. Use only for small files (<~30 KB) or when file_path is unavailable. Larger payloads will time out the tool channel — use file_path instead."
+				},
+				"filename": {
+					"type": "string",
+					"description": "Original filename including extension. Required when using file_base64; inferred from file_path if omitted."
+				},
+				"api_token": {
+					"type": "string"
+				},
+				"environment": {
+					"type": "string",
+					"description": "Sandbox OS environment key (e.g. w10_x64). Use tz_config_environments to discover available keys."
+				},
+				"metafields": {
+					"type": "object",
+					"additionalProperties": {},
+					"description": "Plan-dependent key/value pairs. Use tz_config_metafields_sandbox to discover."
+				},
+				"private": {
+					"type": "boolean",
+					"description": "Make submission visible only to your workspace (default false)"
+				},
+				"entrypoint": {
+					"type": "string",
+					"description": "For archive files: path inside the archive to execute (e.g. \"malware.exe\", \"folder/script.js\")"
+				},
+				"password": {
+					"type": "string",
+					"description": "Password for encrypted/protected archives"
+				},
+				"configurations": {
+					"type": "object",
+					"properties": {
+						"preScript": {
+							"type": "string"
+						},
+						"startArguments": {
+							"type": "string"
+						},
+						"networkConfig": {
+							"type": "string",
+							"description": "MongoDB ObjectId of a network config from tz_network_configs_list"
+						}
+					},
+					"additionalProperties": false,
+					"description": "Advanced execution configuration (plan-dependent)"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submit_static",
+		"description": "Create a static-only analysis submission. Faster than sandbox (no dynamic execution). Returns the submission UUID and message — poll with tz_submission_get.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"file_path": {
+					"type": "string",
+					"description": "Absolute path (or ~/relative) to a file on the MCP server host. Preferred over file_base64 — avoids tool-call argument size limits. Exactly one of file_path or file_base64 must be set."
+				},
+				"file_base64": {
+					"type": "string",
+					"description": "Base64-encoded file content. Use only for small files (<~30 KB) or when file_path is unavailable. Larger payloads will time out the tool channel — use file_path instead."
+				},
+				"filename": {
+					"type": "string",
+					"description": "Original filename including extension. Required when using file_base64; inferred from file_path if omitted."
+				},
+				"api_token": {
+					"type": "string"
+				},
+				"private": {
+					"type": "boolean",
+					"description": "Make submission visible only to your workspace (default false)"
+				},
+				"entrypoint": {
+					"type": "string",
+					"description": "For archive files: path inside the archive to execute (e.g. \"malware.exe\", \"folder/script.js\")"
+				},
+				"password": {
+					"type": "string",
+					"description": "Password for encrypted/protected archives"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submit_cdr",
+		"description": "Create a CDR (Content Disarm & Reconstruction) submission. The output is a sanitized version of the input document with active content removed. Returns the submission UUID — poll with tz_submission_get and download the sanitized file via tz_download_cdr.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"file_path": {
+					"type": "string",
+					"description": "Absolute path (or ~/relative) to a file on the MCP server host. Preferred over file_base64 — avoids tool-call argument size limits. Exactly one of file_path or file_base64 must be set."
+				},
+				"file_base64": {
+					"type": "string",
+					"description": "Base64-encoded file content. Use only for small files (<~30 KB) or when file_path is unavailable. Larger payloads will time out the tool channel — use file_path instead."
+				},
+				"filename": {
+					"type": "string",
+					"description": "Original filename including extension. Required when using file_base64; inferred from file_path if omitted."
+				},
+				"api_token": {
+					"type": "string"
+				},
+				"private": {
+					"type": "boolean",
+					"description": "Make submission visible only to your workspace (default false)"
+				},
+				"entrypoint": {
+					"type": "string",
+					"description": "For archive files: path inside the archive to extract and process"
+				},
+				"password": {
+					"type": "string",
+					"description": "Password for encrypted/protected archives"
+				}
+			},
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submit_url",
+		"description": "Create a URL analysis submission. The crawler fetches the URL, captures screenshot, follows redirects, checks certs and threat lists. Only submit URLs you have authorisation to analyse.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"url": {
+					"type": "string",
+					"format": "uri",
+					"description": "Absolute URL to analyse (HTTP/HTTPS). Shortened URLs are auto-expanded and followed."
+				},
+				"api_token": {
+					"type": "string"
+				},
+				"private": {
+					"type": "boolean",
+					"description": "Make submission visible only to your workspace (default false)"
+				}
+			},
+			"required": ["url"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	},
+	{
+		"name": "tz_submit_open_in_browser",
+		"description": "Create an \"open in browser\" submission. The URL becomes the entrypoint for a sandboxed browser session — useful for credential-harvesting kits and exploit pages. Returns the submission UUID — poll with tz_submission_get.",
+		"inputSchema": {
+			"type": "object",
+			"properties": {
+				"url": {
+					"type": "string",
+					"format": "uri",
+					"description": "Absolute URL to open inside the sandboxed browser"
+				},
+				"api_token": {
+					"type": "string"
+				},
+				"environment": {
+					"type": "string"
+				},
+				"metafields": {
+					"type": "object",
+					"additionalProperties": {}
+				},
+				"private": {
+					"type": "boolean",
+					"description": "Make submission visible only to your workspace (default false)"
+				},
+				"configurations": {
+					"type": "object",
+					"properties": {
+						"preScript": {
+							"type": "string"
+						},
+						"startArguments": {
+							"type": "string"
+						},
+						"networkConfig": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false
+				}
+			},
+			"required": ["url"],
+			"additionalProperties": false,
+			"$schema": "http://json-schema.org/draft-07/schema#"
+		},
+		"execution": {
+			"taskSupport": "forbidden"
+		}
+	}
+]

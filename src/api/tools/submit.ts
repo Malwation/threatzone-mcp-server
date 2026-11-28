@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import type { ToolContext } from '../../shared/tool-context.js';
 import { apiRequest } from '../client.js';
 import { apiErrorResult, BadRequestError } from '../errors.js';
 
@@ -22,7 +23,21 @@ function expandTilde(p: string): string {
 	return p;
 }
 
-async function loadFileForUpload(args: FileSource): Promise<{ bytes: Buffer; filename: string }> {
+async function loadFileForUpload(
+	args: FileSource,
+	ctx: ToolContext,
+): Promise<{ bytes: Buffer; filename: string }> {
+	if (ctx.transportMode === 'http') {
+		// HTTP mode never reads the server disk, so only inline content is accepted.
+		if (!args.file_base64) {
+			throw new BadRequestError(
+				'Provide file_base64 with the base64-encoded file content',
+				'INVALID_FILE_SOURCE',
+			);
+		}
+		return loadBase64(args.file_base64, args.filename);
+	}
+
 	const hasPath = Boolean(args.file_path);
 	const hasB64 = Boolean(args.file_base64);
 	if (hasPath === hasB64) {
@@ -57,14 +72,20 @@ async function loadFileForUpload(args: FileSource): Promise<{ bytes: Buffer; fil
 		return { bytes, filename };
 	}
 
-	if (!args.filename) {
-		throw new BadRequestError('filename is required when using file_base64', 'FILENAME_REQUIRED');
-	}
-	const bytes = Buffer.from(args.file_base64 as string, 'base64');
-	return { bytes, filename: args.filename };
+	return loadBase64(args.file_base64 as string, args.filename);
 }
 
-const fileSourceSchema = {
+function loadBase64(
+	fileBase64: string,
+	filename: string | undefined,
+): { bytes: Buffer; filename: string } {
+	if (!filename) {
+		throw new BadRequestError('filename is required when using file_base64', 'FILENAME_REQUIRED');
+	}
+	return { bytes: Buffer.from(fileBase64, 'base64'), filename };
+}
+
+const stdioFileSourceSchema = {
 	file_path: z
 		.string()
 		.optional()
@@ -85,13 +106,30 @@ const fileSourceSchema = {
 		),
 };
 
-export function registerSubmitTools(server: McpServer): void {
+const httpFileSourceSchema = {
+	file_base64: z
+		.string()
+		.optional()
+		.describe(
+			'Required. Base64-encoded content of the entire file. Large payloads can hit the tool-call argument size limit of your MCP client.',
+		),
+	filename: z.string().optional().describe('Required. Original filename including extension.'),
+};
+
+// HTTP mode leaves file_path out of the schema: the model never sees it and the SDK strips it from calls.
+function fileSourceSchema(ctx: ToolContext): typeof stdioFileSourceSchema {
+	return ctx.transportMode === 'stdio'
+		? stdioFileSourceSchema
+		: (httpFileSourceSchema as typeof stdioFileSourceSchema);
+}
+
+export function registerSubmitTools(server: McpServer, ctx: ToolContext): void {
 	// --- tz_submit_sandbox ---
 	server.tool(
 		'tz_submit_sandbox',
 		'Create a sandbox analysis submission (full static + dynamic). Consumes one daily submission slot from your plan. Returns the submission UUID and message — call tz_submission_get with the UUID to poll status.',
 		{
-			...fileSourceSchema,
+			...fileSourceSchema(ctx),
 			api_token: z.string().optional(),
 			environment: z
 				.string()
@@ -128,7 +166,7 @@ export function registerSubmitTools(server: McpServer): void {
 		},
 		async (args): Promise<CallToolResult> => {
 			try {
-				const { bytes, filename } = await loadFileForUpload(args);
+				const { bytes, filename } = await loadFileForUpload(args, ctx);
 				const formData = new FormData();
 				formData.append('file', new Blob([bytes]), filename);
 				if (args.environment) formData.append('environment', args.environment);
@@ -157,7 +195,7 @@ export function registerSubmitTools(server: McpServer): void {
 		'tz_submit_static',
 		'Create a static-only analysis submission. Faster than sandbox (no dynamic execution). Returns the submission UUID and message — poll with tz_submission_get.',
 		{
-			...fileSourceSchema,
+			...fileSourceSchema(ctx),
 			api_token: z.string().optional(),
 			private: z
 				.boolean()
@@ -173,7 +211,7 @@ export function registerSubmitTools(server: McpServer): void {
 		},
 		async (args): Promise<CallToolResult> => {
 			try {
-				const { bytes, filename } = await loadFileForUpload(args);
+				const { bytes, filename } = await loadFileForUpload(args, ctx);
 				const formData = new FormData();
 				formData.append('file', new Blob([bytes]), filename);
 				if (args.private !== undefined) formData.append('private', String(args.private));
@@ -198,7 +236,7 @@ export function registerSubmitTools(server: McpServer): void {
 		'tz_submit_cdr',
 		'Create a CDR (Content Disarm & Reconstruction) submission. The output is a sanitized version of the input document with active content removed. Returns the submission UUID — poll with tz_submission_get and download the sanitized file via tz_download_cdr.',
 		{
-			...fileSourceSchema,
+			...fileSourceSchema(ctx),
 			api_token: z.string().optional(),
 			private: z
 				.boolean()
@@ -212,7 +250,7 @@ export function registerSubmitTools(server: McpServer): void {
 		},
 		async (args): Promise<CallToolResult> => {
 			try {
-				const { bytes, filename } = await loadFileForUpload(args);
+				const { bytes, filename } = await loadFileForUpload(args, ctx);
 				const formData = new FormData();
 				formData.append('file', new Blob([bytes]), filename);
 				if (args.private !== undefined) formData.append('private', String(args.private));
