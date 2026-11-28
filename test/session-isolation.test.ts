@@ -15,7 +15,11 @@ import { createHttpApp } from '../src/http-app.js';
 import type { RemoteSession, RemoteSessionState } from '../src/shared/remote-session.js';
 import type { TransportMode } from '../src/shared/tool-context.js';
 import type { VncSessionConfig } from '../src/vnc/protocol/protocol-types.js';
-import { SESSION_IDLE_TIMEOUT_MS, SessionManager } from '../src/vnc/protocol/session-manager.js';
+import {
+	SESSION_IDLE_TIMEOUT_MS,
+	SESSION_STALE_TIMEOUT_MS,
+	SessionManager,
+} from '../src/vnc/protocol/session-manager.js';
 import { registerVncTools } from '../src/vnc/register.js';
 
 const API_TOKEN = 'tz_api-token-for-tests';
@@ -54,6 +58,12 @@ class FakeClient implements RemoteSession {
 	constructor(readonly config: VncSessionConfig) {}
 
 	async connect(): Promise<void> {
+		if (refuseDials) {
+			// Includes the link, so the tests can check that the server removes the token.
+			throw new Error(
+				`connection closed by the gateway, code 4401 (token expired): ${this.config.wsUrl}`,
+			);
+		}
 		this.state = 'connected';
 	}
 	disconnect(): void {
@@ -69,7 +79,7 @@ class FakeClient implements RemoteSession {
 		for (const listener of this.listeners) listener();
 	}
 	async screenshot(): Promise<Buffer> {
-		return Buffer.alloc(0);
+		return Buffer.from('png-bytes');
 	}
 	async waitForRect(): Promise<boolean> {
 		return false;
@@ -95,6 +105,7 @@ class FakeClient implements RemoteSession {
 }
 
 let dialed: FakeClient[] = [];
+let refuseDials = false;
 function createClient(config: VncSessionConfig): FakeClient {
 	const client = new FakeClient(config);
 	dialed.push(client);
@@ -233,18 +244,62 @@ test('HTTP: connect twice for the same link returns the same ID with one dial', 
 	assert.equal(dialed[0].config.wsUrl, LINK_A);
 });
 
-test('HTTP: the session is removed when the socket closes', async () => {
+test('HTTP: three concurrent connect calls for the same link make one dial', async () => {
+	const a = await connectHttpClient();
+	const results = await Promise.all(
+		[1, 2, 3].map(() => call(a, 'connect', { submission_uuid: UUID_A })),
+	);
+	for (const result of results) assert.ok(result.text.includes(`'${ID_A}'`), result.text);
+	assert.equal(dialed.length, 1);
+
+	// The same race without HTTP in between: all three calls start before the first dial ends.
+	const manager = new SessionManager({ defaultSession: false, createClient });
+	const config = { host: 'h', port: 443, wsUrl: LINK_A, sessionId: ID_A };
+	const direct = await Promise.all([1, 2, 3].map(() => manager.connectOrReuse(config)));
+	assert.equal(dialed.length, 2);
+	assert.deepEqual(
+		direct.map((r) => r.reused),
+		[false, true, true],
+	);
+	assert.ok(direct.every((r) => r.client === dialed[1]));
+	manager.disconnectAll();
+});
+
+test('HTTP: after the socket closes, the next call reconnects with the same session ID', async () => {
 	const a = await connectHttpClient();
 	await call(a, 'connect', { submission_uuid: UUID_A });
 	dialed[0].remoteClose();
 
-	const ended = await call(a, 'get_screen_size', { session_id: ID_A });
-	assert.equal(ended.isError, true);
-	assert.match(ended.text, /Session not found or ended/);
+	const shot = await call(a, 'screenshot', { session_id: ID_A });
+	assert.equal(shot.isError, false, shot.text);
+	assert.equal(dialed.length, 2);
+	assert.equal(dialed[1].config.wsUrl, LINK_A);
+	assert.equal(dialed[1].config.sessionId, ID_A);
 
 	const again = await call(a, 'connect', { submission_uuid: UUID_A });
 	assert.ok(again.text.includes(`'${ID_A}'`));
+	assert.match(again.text, /Reusing the connected VNC session/);
 	assert.equal(dialed.length, 2);
+});
+
+test('HTTP: a refused reconnect returns "live view ended" and removes the session', async () => {
+	const a = await connectHttpClient();
+	await call(a, 'connect', { submission_uuid: UUID_A });
+	dialed[0].remoteClose();
+	refuseDials = true;
+	try {
+		const ended = await call(a, 'mouse_move', { x: 1, y: 1, session_id: ID_A });
+		assert.equal(ended.isError, true);
+		assert.match(ended.text, /live view of this session ended/);
+		assert.match(ended.text, /code 4401 \(token expired\)/);
+		assert.match(ended.text, /call "connect" with submission_uuid/);
+
+		const gone = await call(a, 'mouse_move', { x: 1, y: 1, session_id: ID_A });
+		assert.match(gone.text, /Session not found or ended/);
+		assert.equal(dialed.length, 2, 'the removed session is not dialed again');
+	} finally {
+		refuseDials = false;
+	}
 });
 
 test('HTTP: tool schemas hide raw URL inputs and require session_id', async () => {
@@ -293,26 +348,84 @@ test('stdio: the default session works and a reused session_id closes the old cl
 	manager.disconnectAll();
 });
 
-test('SessionManager: idle timeout closes the session, and HTTP mode has no default session', async () => {
+test('stdio: a closed default session reconnects and never falls back to another session', async () => {
+	const manager = new SessionManager({ createClient });
+	const client = await connectInMemory('stdio', manager);
+	await call(client, 'connect', { ws_url: 'wss://vm.example.test/a', session_id: 'A' });
+	await call(client, 'connect', { ws_url: 'wss://vm.example.test/b', session_id: 'B' });
+	const [vmA, vmB] = dialed;
+
+	vmB.remoteClose();
+	assert.equal((await call(client, 'mouse_move', { x: 3, y: 4 })).isError, false);
+	assert.equal(dialed.length, 3);
+	assert.equal(dialed[2].config.wsUrl, 'wss://vm.example.test/b');
+	assert.deepEqual(dialed[2].pointer, [[3, 4]]);
+
+	dialed[2].remoteClose();
+	refuseDials = true;
+	try {
+		const ended = await call(client, 'mouse_move', { x: 5, y: 6 });
+		assert.equal(ended.isError, true);
+		assert.match(ended.text, /live view of this session ended/);
+		const noDefault = await call(client, 'mouse_move', { x: 7, y: 8 });
+		assert.match(noDefault.text, /No active VNC session/);
+	} finally {
+		refuseDials = false;
+	}
+	assert.deepEqual(vmA.pointer, [], 'session A never gets the input');
+	assert.equal(vmA.disconnects, 0);
+	assert.equal(vmB.disconnects, 0);
+	assert.equal((await call(client, 'mouse_move', { x: 9, y: 9, session_id: 'A' })).isError, false);
+	assert.deepEqual(vmA.pointer, [[9, 9]]);
+	manager.disconnectAll();
+});
+
+test('SessionManager: concurrent calls on a closed session share one reconnect', async () => {
+	const manager = new SessionManager({ defaultSession: false, createClient });
+	const config = { host: 'h', port: 443, wsUrl: LINK_A, sessionId: ID_A };
+	await manager.connectOrReuse(config);
+	dialed[0].remoteClose();
+
+	const used = await Promise.all([1, 2, 3, 4, 5].map(() => manager.run(ID_A, (client) => client)));
+	assert.equal(dialed.length, 2);
+	assert.ok(used.every((client) => client === dialed[1]));
+	manager.disconnectAll();
+});
+
+test('SessionManager: idle timeout skips busy sessions, keeps the entry, and drops it when stale', async () => {
 	assert.equal(SESSION_IDLE_TIMEOUT_MS, 5 * 60 * 1000);
+	assert.equal(SESSION_STALE_TIMEOUT_MS, 30 * 60 * 1000);
 	mock.timers.enable({ apis: ['setTimeout'] });
 	try {
 		const manager = new SessionManager({
 			defaultSession: false,
 			idleTimeoutMs: 1000,
+			staleTimeoutMs: 5000,
 			createClient,
 		});
 		const config = { host: 'h', port: 443, wsUrl: LINK_A, sessionId: ID_A };
 		await manager.connectOrReuse(config);
 		assert.throws(() => manager.getSession(), /Session not found or ended/);
 
-		mock.timers.tick(999);
-		manager.getSession(ID_A);
-		mock.timers.tick(999);
-		assert.equal(manager.getSession(ID_A), dialed[0], 'each tool call resets the idle timer');
+		// A long call (like wait_for_screen_change) runs across three idle periods.
+		let finish: () => void = () => undefined;
+		const longCall = manager.run(ID_A, () => new Promise<void>((resolve) => (finish = resolve)));
+		mock.timers.tick(3000);
+		assert.equal(dialed[0].disconnects, 0, 'a busy session is not closed');
+		finish();
+		await longCall;
+
 		mock.timers.tick(1000);
+		assert.equal(dialed[0].disconnects, 1, 'the idle timeout closes the connection');
+		assert.equal(manager.getSession(ID_A), dialed[0], 'the entry stays after an idle close');
+
+		await manager.run(ID_A, () => undefined);
+		assert.equal(dialed.length, 2, 'the next call reconnects');
+
+		mock.timers.tick(1000);
+		mock.timers.tick(5000);
 		assert.throws(() => manager.getSession(ID_A), /Session not found or ended/);
-		assert.equal(dialed[0].disconnects, 1);
+		assert.equal(dialed[1].state, 'disconnected');
 	} finally {
 		mock.timers.reset();
 	}

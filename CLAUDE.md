@@ -19,7 +19,7 @@ The official Threat.Zone MCP (Model Context Protocol) server. Provides VNC and W
 
 ## Architecture
 
-`src/index.ts` is a thin orchestrator: loads `.env` via `dotenv/config`, then branches on `MCP_TRANSPORT`. In HTTP mode it serves the Express app from `src/http-app.ts` (`createHttpApp`): one `/mcp` route plus `/healthz`, a fresh `McpServer` + `StreamableHTTPServerTransport` per MCP session (keyed by the `mcp-session-id` header), bound to `MCP_HTTP_HOST:MCP_HTTP_PORT` (defaults `127.0.0.1:7860`). In stdio mode it falls back to the original single-server `StdioServerTransport` boot. Both paths call `registerVncTools(server, ctx, sessionManager)` and `registerApiTools(server, ctx)`. On SIGTERM/SIGINT, `index.ts` calls `sessionManager.disconnectAll()` and exits.
+`src/index.ts` is a thin orchestrator: loads `.env` via `dotenv/config`, then branches on `MCP_TRANSPORT`. In HTTP mode it serves the Express app from `src/http-app.ts` (`createHttpApp`): one `/mcp` route plus `/healthz`, a fresh `McpServer` + `StreamableHTTPServerTransport` per MCP session (keyed by the `mcp-session-id` header), bound to `MCP_HTTP_HOST:MCP_HTTP_PORT` (defaults `127.0.0.1:7860`). In stdio mode it falls back to the original single-server `StdioServerTransport` boot. Both paths call `registerVncTools(server, ctx, sessionManager)` and `registerApiTools(server, ctx)`. On SIGINT/SIGTERM, `installShutdownHandlers` (`src/shutdown.ts`) calls `sessionManager.disconnectAll()` and exits with 130/143.
 
 **Transport mode and the server disk.** `index.ts` parses `MCP_TRANSPORT` once (`parseTransportMode` in `src/shared/tool-context.ts`) and passes a `ToolContext` to `registerApiTools(server, ctx)`. Tools read the mode from that context, never from `process.env`. In HTTP mode no tool reads or writes a path on the server disk: the `tz_download_*` schemas have no `save_to`, and `tz_submit_sandbox` / `tz_submit_static` / `tz_submit_cdr` have no `file_path` (only `file_base64` + `filename`). A download over 25 MB returns the Public API URL and a `curl` command with a `<YOUR_API_TOKEN>` placeholder, and the server does not read the body. stdio mode keeps `save_to` and `file_path`. VNC `file_upload` / `file_download` take base64 content and a remote VM path only, so they are the same in both modes. Keep this rule for every new tool.
 
@@ -27,12 +27,20 @@ Each feature domain lives in its own directory under `src/` and exports a `regis
 
 **Session model.** `index.ts` creates one `SessionManager` per process (`SessionManager.forTransport(mode)`). Every HTTP MCP client gets its own transport + `McpServer`, but all of them share that manager. In HTTP mode:
 
-- `connect` takes only `submission_uuid` (+ `api_token`). The session ID is `sha256(<token query value of the live-view link>)` as 64 hex chars (`liveViewSessionId` in `tools/connect.ts`). The caller cannot choose it, and only a caller that gets the link from the Public API learns it. The raw token and the link query never appear in output.
-- A second `connect` for the same link returns the same ID and reuses the connected client (`connectOrReuse`, one dial even for concurrent calls). A dead entry with that ID is replaced.
-- Every session tool requires `session_id`. There is no default session, so `getSession(undefined)` throws. An unknown or ended ID returns "Session not found or ended".
-- An entry is removed when its client ends (`RemoteSession.onClose`: socket end or error) and after `SESSION_IDLE_TIMEOUT_MS` (5 minutes) with no tool call. The idle timer is `unref()`ed.
+- `connect` takes only `submission_uuid` (+ `api_token`). The session ID is `sha256(<token query value of the live-view link>)` as 64 hex chars (`liveViewSessionId` in `tools/connect.ts`). The caller cannot choose it. The raw token and the link query never appear in output.
+- A second `connect` for the same link returns the same ID and reuses the connected client (`connectOrReuse`, one dial even for concurrent calls). A closed entry with that ID is dialed again.
+- Every session tool requires `session_id`. There is no default session, so `getSession(undefined)` throws. An unknown or removed ID returns "Session not found or ended".
 
-stdio mode keeps `url` / `ws_url` / `ws_cookie`, a caller-chosen `session_id` and the default session, with no idle timeout. In both modes, `register()` with an existing ID disconnects the old client.
+**Reconnect (both modes).** An entry keeps its dial config (link, plus cookie in stdio). When its socket closes (`RemoteSession.onClose`) or the HTTP idle timeout (`SESSION_IDLE_TIMEOUT_MS`, 5 minutes) fires, the entry stays and is marked closed. The stdio default does not move. Every session tool runs inside `sessionManager.run(id, fn)` (`withSession` in `register.ts`):
+
+- A closed entry is dialed again before the call. Concurrent calls share one dial (`entry.redial`).
+- A failed redial removes the entry and throws `LiveViewEndedError` with the redacted dial error (it holds the gateway close code, for example `code 4401`).
+- `run` counts calls in flight. The idle timer never closes a busy entry, and it restarts when the call ends.
+- An entry is removed on a failed redial, on `disconnect`, on shutdown, and after `SESSION_STALE_TIMEOUT_MS` (30 minutes) closed and unused. Timers are `unref()`ed.
+
+stdio mode keeps `url` / `ws_url` / `ws_cookie`, a caller-chosen `session_id` and the default session, with no idle timeout. Only `disconnect` moves the default to another entry. In both modes, `register()` with an existing ID disconnects the old client.
+
+**Fail fast on a refused dial.** `vencrypt-client.ts` rejects pending reads when the socket closes or fails, so a gateway that accepts the WebSocket and then closes it (4401) fails `connect()` at once, not after the 10 s handshake timeout. `ws-transport.ts` queues frames that arrive before the reader attaches.
 
 ### Shared (`src/shared/`)
 

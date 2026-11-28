@@ -35,6 +35,17 @@ export class SessionNotFoundError extends VncError {
 	}
 }
 
+/** A closed session could not dial its live-view link again. `detail` must hold no token. */
+export class LiveViewEndedError extends VncError {
+	constructor(detail: string) {
+		super(
+			`The live view of this session ended (the run finished or the VM stopped): ${detail}. If the run is still in progress, call "connect" with submission_uuid to open a new session.`,
+			'LIVE_VIEW_ENDED',
+		);
+		this.name = 'LiveViewEndedError';
+	}
+}
+
 export class TimeoutError extends VncError {
 	constructor(operation: string, timeoutMs: number) {
 		super(`${operation} timed out after ${timeoutMs}ms`, 'TIMEOUT');

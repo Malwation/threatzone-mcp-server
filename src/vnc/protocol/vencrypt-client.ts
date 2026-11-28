@@ -45,18 +45,17 @@ const VENCRYPT_SUBTYPES = {
 class BufferedReader {
 	private chunks: Buffer[] = [];
 	private buffered = 0;
-	private waiting: { needed: number; resolve: (buf: Buffer) => void } | null = null;
+	private waiting: {
+		needed: number;
+		resolve: (buf: Buffer) => void;
+		reject: (err: Error) => void;
+	} | null = null;
+	private failure: Error | null = null;
 	private errorHandler: ((err: Error) => void) | null = null;
 	private endHandler: (() => void) | null = null;
 
 	constructor(private stream: EventEmitter) {
-		stream.on('data', (data: Buffer) => {
-			this.chunks.push(data);
-			this.buffered += data.length;
-			this.tryDeliver();
-		});
-		stream.on('error', (err) => this.errorHandler?.(err));
-		stream.on('end', () => this.endHandler?.());
+		this.attach(stream);
 	}
 
 	onError(handler: (err: Error) => void): void {
@@ -67,10 +66,16 @@ class BufferedReader {
 		this.endHandler = handler;
 	}
 
+	/** Rejects when the stream closes or fails before n bytes arrive. */
 	read(n: number): Promise<Buffer> {
-		return new Promise<Buffer>((resolve) => {
-			this.waiting = { needed: n, resolve };
+		// Executor form: the project targets lib ES2022, which has no Promise.withResolvers.
+		return new Promise<Buffer>((resolve, reject) => {
+			this.waiting = { needed: n, resolve, reject };
 			this.tryDeliver();
+			if (this.waiting && this.failure) {
+				this.waiting = null;
+				reject(this.failure);
+			}
 		});
 	}
 
@@ -98,13 +103,38 @@ class BufferedReader {
 	replaceStream(newStream: EventEmitter): void {
 		this.stream.removeAllListeners('data');
 		this.stream = newStream;
-		newStream.on('data', (data: Buffer) => {
+		this.attach(newStream);
+	}
+
+	private attach(stream: EventEmitter): void {
+		stream.on('data', (data: Buffer) => {
 			this.chunks.push(data);
 			this.buffered += data.length;
 			this.tryDeliver();
 		});
-		newStream.on('error', (err) => this.errorHandler?.(err));
-		newStream.on('end', () => this.endHandler?.());
+		stream.on('error', (err: Error) => {
+			this.fail(new ConnectionError(`VNC connection failed: ${err.message}`));
+			this.errorHandler?.(err);
+		});
+		stream.on('end', () => {
+			const close = 'closeDescription' in stream ? stream.closeDescription : undefined;
+			this.fail(
+				new ConnectionError(
+					typeof close === 'string'
+						? `connection closed by the gateway, ${close}`
+						: 'connection closed by the server',
+				),
+			);
+			this.endHandler?.();
+		});
+	}
+
+	private fail(err: Error): void {
+		this.failure ??= err;
+		const waiting = this.waiting;
+		if (!waiting) return;
+		this.waiting = null;
+		waiting.reject(this.failure);
 	}
 
 	private tryDeliver(): void {
@@ -240,19 +270,33 @@ export class VeNCryptClient extends EventEmitter implements RfbBackend {
 		this.socket = socket;
 		this.reader = new BufferedReader(socket);
 
-		this.reader.onError((err) => this.emit('error', err));
-		this.reader.onEnd(() => this.emit('end'));
+		// During the handshake a close or error rejects the pending read, so connect() fails at once.
+		// Emitting 'error' then would throw, because the caller attaches its listeners after connect().
+		let handshaking = true;
+		this.reader.onError((err) => {
+			if (!handshaking) this.emit('error', err);
+		});
+		this.reader.onEnd(() => {
+			if (!handshaking) this.emit('end');
+		});
 
+		let timer: NodeJS.Timeout | undefined;
 		try {
 			await Promise.race([
 				this.handshake(),
-				new Promise<never>((_, reject) =>
-					setTimeout(() => reject(new ConnectionError('VeNCrypt handshake timed out')), timeoutMs),
-				),
+				new Promise<never>((_, reject) => {
+					timer = setTimeout(
+						() => reject(new ConnectionError('VeNCrypt handshake timed out')),
+						timeoutMs,
+					);
+				}),
 			]);
 		} catch (err) {
 			this.end();
 			throw err;
+		} finally {
+			clearTimeout(timer);
+			handshaking = false;
 		}
 	}
 
@@ -496,7 +540,7 @@ export class VeNCryptClient extends EventEmitter implements RfbBackend {
 			}
 		} catch (err) {
 			// Socket closed or read error — expected on disconnect
-			if (this.socket?.destroyed || this.tlsSocket?.destroyed) return;
+			if (!this.socket || this.socket.destroyed || this.tlsSocket?.destroyed) return;
 			this.emit('error', err instanceof Error ? err : new Error(String(err)));
 		}
 	}

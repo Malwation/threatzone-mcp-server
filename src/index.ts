@@ -7,6 +7,7 @@ import { logEffectiveConfig } from './api/config.js';
 import { registerApiTools } from './api/register.js';
 import { createHttpApp } from './http-app.js';
 import { parseTransportMode, type ToolContext } from './shared/tool-context.js';
+import { installShutdownHandlers } from './shutdown.js';
 import { SessionManager } from './vnc/protocol/session-manager.js';
 import { registerVncTools } from './vnc/register.js';
 
@@ -60,13 +61,7 @@ process.on('unhandledRejection', (err) => {
 	console.error('Unhandled rejection:', err);
 });
 
-for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-	process.once(signal, () => {
-		console.error(`[mcp] ${signal}: closing VNC sessions`);
-		sessionManager.disconnectAll();
-		process.exit(0);
-	});
-}
+installShutdownHandlers(sessionManager);
 
 const main = transportMode === 'stdio' ? startStdio : startHttp;
 

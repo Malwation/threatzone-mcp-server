@@ -5,6 +5,7 @@ import { apiErrorResult, ConflictError } from '../../api/errors.js';
 import type { RemoteSession } from '../../shared/remote-session.js';
 import type { ToolContext } from '../../shared/tool-context.js';
 import { ConnectionError } from '../errors.js';
+import { redactMessage, redactUrl } from '../protocol/redact.js';
 import type { SessionManager } from '../protocol/session-manager.js';
 
 export interface ConnectArgs {
@@ -32,24 +33,14 @@ function errorText(text: string): CallToolResult {
 	return { content: [{ type: 'text', text: `Error: ${text}` }], isError: true };
 }
 
-/** Removes the query and fragment so a live-view token never reaches tool output. */
-function redactUrl(raw: string): string {
-	try {
-		const parsed = new URL(raw);
-		return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
-	} catch {
-		return '<invalid URL>';
-	}
-}
-
 /**
- * HTTP-mode session ID: SHA-256 (hex) of the live-view token in the link. Only a caller that gets
- * the link from the Public API can learn it, and the raw token never leaves the server.
+ * HTTP-mode session ID: SHA-256 (hex) of the live-view token in the link. The server derives it,
+ * so the caller cannot choose it, and the raw token never appears in tool output.
  */
 export function liveViewSessionId(link: string): string {
 	let secret = link;
 	try {
-		secret = new URL(link).searchParams.get('token') ?? link;
+		secret = new URL(link).searchParams.get('token') || link;
 	} catch {
 		// connectVncFlow rejects the invalid URL with a redacted message.
 	}
@@ -218,10 +209,7 @@ async function connectVncFlow(
 		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		const token = parsed.searchParams.get('token');
-		let safe = message.split(wsUrl).join(target);
-		if (token) safe = safe.split(token).join('<redacted>');
-		throw new ConnectionError(`Failed to connect to ${target}: ${safe}`);
+		throw new ConnectionError(`Failed to connect to ${target}: ${redactMessage(message, wsUrl)}`);
 	}
 
 	const id = client.config.sessionId;
