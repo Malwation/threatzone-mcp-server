@@ -31,11 +31,18 @@ export interface SessionManagerOptions {
  */
 interface SessionEntry {
 	config: VncSessionConfig;
+	/** Opened from `submission_uuid`: the "live view ended" error then points the caller there. */
+	fromSubmission: boolean;
 	client: RemoteSession;
 	live: boolean;
 	inFlight: number;
 	timer: NodeJS.Timeout | undefined;
 	redial: Promise<RemoteSession> | undefined;
+}
+
+export interface DialOrigin {
+	/** The link came from `submission_uuid` (the Public API session route). */
+	fromSubmission?: boolean;
 }
 
 function createVncClient(config: VncSessionConfig): RemoteSession {
@@ -71,10 +78,11 @@ export class SessionManager {
 	/** Dial a new session and register it. An old session with the same ID is closed. */
 	async connectVnc(
 		config: Omit<VncSessionConfig, 'sessionId'> & { sessionId?: string },
+		origin: DialOrigin = {},
 	): Promise<RemoteSession> {
 		const fullConfig: VncSessionConfig = { ...config, sessionId: config.sessionId ?? randomUUID() };
 		const client = await this.dial(fullConfig);
-		this.register(client, fullConfig);
+		this.register(client, fullConfig, origin);
 		return client;
 	}
 
@@ -84,6 +92,7 @@ export class SessionManager {
 	 */
 	async connectOrReuse(
 		config: VncSessionConfig,
+		origin: DialOrigin = {},
 	): Promise<{ client: RemoteSession; reused: boolean }> {
 		const id = config.sessionId;
 		const entry = this.sessions.get(id);
@@ -94,24 +103,26 @@ export class SessionManager {
 			}
 			if (entry.redial) return { client: await entry.redial, reused: true };
 			entry.config = config;
+			entry.fromSubmission = origin.fromSubmission ?? false;
 			return { client: await this.redial(id, entry), reused: false };
 		}
 		const inFlight = this.pending.get(id);
 		if (inFlight) return { client: await inFlight, reused: true };
 
-		const dial = this.connectVnc(config).finally(() => this.pending.delete(id));
+		const dial = this.connectVnc(config, origin).finally(() => this.pending.delete(id));
 		this.pending.set(id, dial);
 		return { client: await dial, reused: false };
 	}
 
 	/** Register a connected session and make it the default. An old client with the same ID is closed. */
-	register(client: RemoteSession, config: VncSessionConfig): void {
+	register(client: RemoteSession, config: VncSessionConfig, origin: DialOrigin = {}): void {
 		const id = client.config.sessionId;
 		if (this.sessions.get(id)?.client === client) return;
 		this.drop(id);
 
 		const entry: SessionEntry = {
 			config,
+			fromSubmission: origin.fromSubmission ?? false,
 			client,
 			live: true,
 			inFlight: 0,
@@ -127,10 +138,11 @@ export class SessionManager {
 	/**
 	 * Runs one tool call on a session. A closed connection is dialed again first (one dial shared
 	 * by concurrent calls). The idle timeout never closes a session while a call runs on it.
+	 * `fn` gets the resolved session ID, so a call without one stays on the session resolved here.
 	 */
 	async run<T>(
 		sessionId: string | undefined,
-		fn: (client: RemoteSession) => T | Promise<T>,
+		fn: (client: RemoteSession, id: string) => T | Promise<T>,
 	): Promise<T> {
 		const id = this.resolveId(sessionId);
 		const entry = this.sessions.get(id);
@@ -140,7 +152,7 @@ export class SessionManager {
 		try {
 			const client = this.isLive(entry) ? entry.client : await this.redialForCall(id, entry);
 			this.touch(id, entry);
-			return await fn(client);
+			return await fn(client, id);
 		} finally {
 			entry.inFlight--;
 			if (this.sessions.get(id) === entry) this.touch(id, entry);
@@ -193,6 +205,8 @@ export class SessionManager {
 				entry.client = client;
 				entry.live = true;
 				this.watch(id, entry, client);
+				// Replaces the stale timer from the close with the idle timer.
+				this.touch(id, entry);
 				return client;
 			})
 			.catch((err: unknown) => {
@@ -212,7 +226,10 @@ export class SessionManager {
 			if (err instanceof SessionNotFoundError) throw err;
 			const message = err instanceof Error ? err.message : String(err);
 			const url = entry.config.wsUrl;
-			throw new LiveViewEndedError(url ? redactMessage(message, url) : message);
+			throw new LiveViewEndedError(
+				url ? redactMessage(message, url) : message,
+				entry.fromSubmission,
+			);
 		}
 	}
 

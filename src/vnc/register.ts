@@ -79,13 +79,16 @@ export function registerVncTools(
 	const sessionId = http ? (httpSessionId as unknown as typeof stdioSessionId) : stdioSessionId;
 
 	// Session tools run inside sessionManager.run: it dials a closed session again before the call.
+	// The handler gets the ID that run resolved, so the stdio default is resolved only once.
 	const withSession =
 		<A extends { session_id?: string }>(
 			handler: (args: A, sessions: SessionManager) => CallToolResult | Promise<CallToolResult>,
 		) =>
 		async (args: A): Promise<CallToolResult> => {
 			try {
-				return await sessionManager.run(args.session_id, () => handler(args, sessionManager));
+				return await sessionManager.run(args.session_id, (_client, id) =>
+					handler({ ...args, session_id: id }, sessionManager),
+				);
 			} catch (err) {
 				return errorResult(err);
 			}

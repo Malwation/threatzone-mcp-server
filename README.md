@@ -112,7 +112,7 @@ In HTTP mode (the default, and the hosted server), each live view is a separate 
 5. When the sandbox run ends, the reconnect fails. The tool call returns a "live view ended" error with the gateway close code, and the session is removed. If the run is still in progress, call `connect` with `submission_uuid` again.
 6. A tool call with an unknown or removed `session_id` returns "Session not found or ended".
 
-In stdio mode, `session_id` is optional, tools use the last connected session by default, and `connect` also accepts the raw URL inputs below. Reconnect works the same way in stdio mode. A call without `session_id` reconnects the default session. It never moves to another session, and only `disconnect` changes the default. Both modes remove a closed session after 30 minutes with no tool call.
+In stdio mode, `session_id` is optional, tools use the last connected session by default, and `connect` also accepts the raw URL inputs below. Reconnect works the same way in stdio mode. A call without `session_id` reconnects the default session. It never moves to another session, and only `disconnect` changes the default. For a session opened with `url` or `ws_url`, the "live view ended" error tells you to call `connect` again. Both modes remove a closed session after 30 minutes with no tool call.
 </important_notes>
 
 ### VNC: screen

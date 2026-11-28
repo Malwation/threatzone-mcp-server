@@ -150,11 +150,13 @@ async function connectSubmission(
 			? await connectVncFlow(sessionManager, session.link, {
 					sessionId: liveViewSessionId(session.link),
 					shared: true,
+					fromSubmission: true,
 				})
 			: await connectVncFlow(sessionManager, session.link, {
 					wsCookie: args.ws_cookie,
 					sessionId: args.session_id,
 					shared: false,
+					fromSubmission: true,
 				});
 	if (session.expiresAt !== null && !result.isError) {
 		result.content.push({
@@ -170,6 +172,8 @@ interface DialOptions {
 	sessionId?: string;
 	/** HTTP mode: reuse a connected session with the same ID instead of dialing again. */
 	shared: boolean;
+	/** The link came from `submission_uuid`. */
+	fromSubmission?: boolean;
 }
 
 async function connectVncFlow(
@@ -192,20 +196,15 @@ async function connectVncFlow(
 	let reused = false;
 	try {
 		if (opts.shared && opts.sessionId) {
-			({ client, reused } = await sessionManager.connectOrReuse({
-				host,
-				port,
-				wsUrl,
-				sessionId: opts.sessionId,
-			}));
+			({ client, reused } = await sessionManager.connectOrReuse(
+				{ host, port, wsUrl, sessionId: opts.sessionId },
+				{ fromSubmission: opts.fromSubmission },
+			));
 		} else {
-			client = await sessionManager.connectVnc({
-				host,
-				port,
-				wsUrl,
-				wsHeaders,
-				sessionId: opts.sessionId,
-			});
+			client = await sessionManager.connectVnc(
+				{ host, port, wsUrl, wsHeaders, sessionId: opts.sessionId },
+				{ fromSubmission: opts.fromSubmission },
+			);
 		}
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);

@@ -58,6 +58,10 @@ class FakeClient implements RemoteSession {
 	constructor(readonly config: VncSessionConfig) {}
 
 	async connect(): Promise<void> {
+		if (dialGate && this.config.wsUrl === dialGate.url) {
+			dialGate.started();
+			await dialGate.release;
+		}
 		if (refuseDials) {
 			// Includes the link, so the tests can check that the server removes the token.
 			throw new Error(
@@ -106,6 +110,8 @@ class FakeClient implements RemoteSession {
 
 let dialed: FakeClient[] = [];
 let refuseDials = false;
+/** Holds the dial of one URL until the test releases it. */
+let dialGate: { url: string; started: () => void; release: Promise<void> } | null = null;
 function createClient(config: VncSessionConfig): FakeClient {
 	const client = new FakeClient(config);
 	dialed.push(client);
@@ -367,6 +373,12 @@ test('stdio: a closed default session reconnects and never falls back to another
 		const ended = await call(client, 'mouse_move', { x: 5, y: 6 });
 		assert.equal(ended.isError, true);
 		assert.match(ended.text, /live view of this session ended/);
+		assert.match(ended.text, /Call "connect" again to open a new session/);
+		assert.doesNotMatch(
+			ended.text,
+			/submission_uuid/,
+			'a ws_url session gets no submission_uuid hint',
+		);
 		const noDefault = await call(client, 'mouse_move', { x: 7, y: 8 });
 		assert.match(noDefault.text, /No active VNC session/);
 	} finally {
@@ -378,6 +390,67 @@ test('stdio: a closed default session reconnects and never falls back to another
 	assert.equal((await call(client, 'mouse_move', { x: 9, y: 9, session_id: 'A' })).isError, false);
 	assert.deepEqual(vmA.pointer, [[9, 9]]);
 	manager.disconnectAll();
+});
+
+test('stdio: a call without session_id stays on the session it reconnects', async () => {
+	const manager = new SessionManager({ createClient });
+	const client = await connectInMemory('stdio', manager);
+	await call(client, 'connect', { ws_url: 'wss://vm.example.test/a', session_id: 'A' });
+	dialed[0].remoteClose();
+
+	let started: () => void = () => undefined;
+	const dialStarted = new Promise<void>((resolve) => (started = resolve));
+	let release: () => void = () => undefined;
+	dialGate = {
+		url: 'wss://vm.example.test/a',
+		started,
+		release: new Promise<void>((resolve) => (release = resolve)),
+	};
+	try {
+		// The call resolves the default (A) and waits on the reconnect of A.
+		const move = call(client, 'mouse_move', { x: 4, y: 2 });
+		await dialStarted;
+		// A parallel connect makes B the default while A dials.
+		await call(client, 'connect', { ws_url: 'wss://vm.example.test/b', session_id: 'B' });
+		release();
+		assert.equal((await move).isError, false);
+	} finally {
+		dialGate = null;
+	}
+	const reconnectedA = dialed.find((c, i) => i > 0 && c.config.sessionId === 'A');
+	const sessionB = dialed.find((c) => c.config.sessionId === 'B');
+	assert.deepEqual(reconnectedA?.pointer, [[4, 2]], 'the input goes to A');
+	assert.deepEqual(sessionB?.pointer, [], 'B gets no input');
+	manager.disconnectAll();
+});
+
+test('SessionManager: a reconnect through connect replaces the removal timer of the closed session', async () => {
+	mock.timers.enable({ apis: ['setTimeout'] });
+	try {
+		const manager = new SessionManager({
+			defaultSession: false,
+			idleTimeoutMs: 10_000,
+			staleTimeoutMs: 5000,
+			createClient,
+		});
+		const config = { host: 'h', port: 443, wsUrl: LINK_A, sessionId: ID_A };
+		await manager.connectOrReuse(config, { fromSubmission: true });
+		dialed[0].remoteClose();
+
+		mock.timers.tick(4000);
+		const again = await manager.connectOrReuse(config, { fromSubmission: true });
+		assert.equal(again.reused, false);
+		mock.timers.tick(2000);
+		assert.equal(manager.getSession(ID_A), dialed[1], 'the session survives the old removal timer');
+		assert.equal(dialed[1].state, 'connected');
+		assert.equal(dialed[1].disconnects, 0);
+
+		mock.timers.tick(8000);
+		assert.equal(dialed[1].disconnects, 1, 'the idle timer of the new connection still runs');
+		manager.disconnectAll();
+	} finally {
+		mock.timers.reset();
+	}
 });
 
 test('SessionManager: concurrent calls on a closed session share one reconnect', async () => {
